@@ -229,10 +229,20 @@
       const backspaceButton = document.getElementById('backspace');
       const equalsButton = document.getElementById('equals');
       const keypadButtons = document.querySelectorAll('[data-value]');
+      const display = document.querySelector('.display');
 
       let formula = '0';
       let history = [];
-      let historyVisible = false;
+      let historyVisible = true;
+
+      function formatResult(value) {
+        if (!Number.isFinite(value)) {
+          return 'Error';
+        }
+
+        const rounded = Number(value.toFixed(10));
+        return rounded.toString();
+      }
 
       function updateDisplay() {
         formulaNode.textContent = formula;
@@ -240,11 +250,27 @@
       }
 
       function appendValue(value) {
-        if (formula === '0') {
+        const isDigit = /^[0-9]$/.test(value);
+        const isOperator = /^[+\-*/()]$/.test(value);
+
+        if (value === '00') {
+          if (formula === '0' || formula === '') {
+            formula = '0';
+          } else if (/[+\-*/(]$/.test(formula)) {
+            formula += '0';
+          } else {
+            formula += '00';
+          }
+        } else if (formula === '0' && isDigit) {
           formula = value;
+        } else if (formula === '0' && value === '.') {
+          formula = '0.';
+        } else if (value === '.' && formula.includes('.')) {
+          return;
         } else {
           formula += value;
         }
+
         updateDisplay();
       }
 
@@ -268,6 +294,38 @@
         historyToggle.textContent = historyVisible ? 'Hide History' : 'History';
       }
 
+      function handleEquals() {
+        return equalsButton.click();
+      }
+
+      function handleKeyboardInput(event) {
+        const key = event.key;
+
+        if (key === 'Enter') {
+          event.preventDefault();
+          handleEquals();
+          return;
+        }
+
+        if (key === 'Backspace') {
+          event.preventDefault();
+          backspace();
+          return;
+        }
+
+        if (key === 'Escape' || key === 'Delete') {
+          event.preventDefault();
+          clearFormula();
+          return;
+        }
+
+        if (/^[0-9.+\-*/()]$/.test(key)) {
+          event.preventDefault();
+          appendValue(key);
+          return;
+        }
+      }
+
       keypadButtons.forEach((button) => {
         button.addEventListener('click', () => {
           appendValue(button.dataset.value);
@@ -277,7 +335,10 @@
       clearButton.addEventListener('click', clearFormula);
       backspaceButton.addEventListener('click', backspace);
       historyToggle.addEventListener('click', toggleHistory);
-      historyList.style.display = 'none';
+      historyList.style.display = 'block';
+      historyToggle.textContent = 'Hide History';
+      display.addEventListener('keydown', handleKeyboardInput);
+      display.setAttribute('tabindex', '0');
 
       equalsButton.addEventListener('click', async () => {
         const response = await fetch('/calculate', {
@@ -292,10 +353,12 @@
           return;
         }
 
-        history.unshift(`${formula} = ${data.result}`);
+        const displayResult = formatResult(data.result);
+        history.unshift(`${formula} = ${displayResult}`);
         history = history.slice(0, 8);
         historyList.innerHTML = history.map((item) => `<div>${item}</div>`).join('');
-        resultNode.textContent = data.result;
+        historyList.style.display = historyVisible ? 'block' : 'none';
+        resultNode.textContent = displayResult;
       });
     </script>
   </body>

@@ -45,6 +45,23 @@ How to run the automated test
    npm test
 3. If everything is working, the test should pass.
 
+How to add or update tests
+--------------------------
+1. Open the test file:
+   test/app.test.js
+2. Add a new test block for the behavior you want to protect.
+3. Save the file.
+4. Run:
+   npm test
+5. If the new test fails, update the app code and run the tests again until they pass.
+
+Good examples of new tests
+--------------------------
+- divide by zero
+- multiplication
+- clear button behavior
+- decimal arithmetic
+
 If you have trouble
 -------------------
 - If "node" or "npm" is not recognized, close and reopen Git Bash and try again.

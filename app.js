@@ -16,7 +16,7 @@ app.post('/calculate', (req, res) => {
   const { expression, a, b, operation } = req.body;
 
   if (typeof expression === 'string' && expression.trim() !== '') {
-    const sanitized = expression.replace(/[^0-9.+\-*/() ]/g, '');
+    const sanitized = expression.replace(/\s+/g, '').replace(/[^0-9.+\-*/()]/g, '');
     if (sanitized.trim() === '') {
       return res.status(400).json({ error: 'Please enter a valid expression.' });
     }
@@ -26,7 +26,7 @@ app.post('/calculate', (req, res) => {
       if (!Number.isFinite(result)) {
         return res.status(400).json({ error: 'Calculation produced an invalid result.' });
       }
-      return res.json({ result });
+      return res.json({ result: Number(result) === 0 ? 0 : Number(result) });
     } catch (error) {
       return res.status(400).json({ error: 'Please enter a valid expression.' });
     }

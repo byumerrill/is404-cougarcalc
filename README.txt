@@ -1,0 +1,1 @@
+CougarCalc is a simple demo calculator

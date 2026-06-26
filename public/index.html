@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CougarCalc</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f4f7fb;
+        color: #1f2a44;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+      }
+
+      .card {
+        background: white;
+        padding: 24px;
+        border-radius: 16px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+        width: min(90vw, 360px);
+        text-align: center;
+      }
+
+      img {
+        width: 120px;
+        margin-bottom: 16px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+
+      .row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      input, select, button {
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #cfd8e3;
+        font-size: 16px;
+      }
+
+      input {
+        width: 100px;
+      }
+
+      select {
+        width: 70px;
+      }
+
+      button {
+        width: 100%;
+        background: #2f6fed;
+        color: white;
+        border: none;
+        cursor: pointer;
+      }
+
+      .result {
+        margin-top: 14px;
+        font-size: 20px;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <img src="/CougarCalc.png" alt="CougarCalc logo" />
+      <h1>CougarCalc</h1>
+      <p>A simple calculator for basic arithmetic.</p>
+      <div class="row">
+        <input id="a" type="number" value="0" />
+        <select id="operation">
+          <option value="+">+</option>
+          <option value="-">-</option>
+          <option value="*">×</option>
+          <option value="/">÷</option>
+        </select>
+        <input id="b" type="number" value="0" />
+      </div>
+      <button id="calculate">Calculate</button>
+      <div id="result" class="result">Result: 0</div>
+    </div>
+
+    <script>
+      const calculateButton = document.getElementById('calculate');
+      const resultNode = document.getElementById('result');
+
+      calculateButton.addEventListener('click', async () => {
+        const a = document.getElementById('a').value;
+        const b = document.getElementById('b').value;
+        const operation = document.getElementById('operation').value;
+
+        const response = await fetch('/calculate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ a, b, operation })
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          resultNode.textContent = `Error: ${data.error}`;
+          return;
+        }
+
+        resultNode.textContent = `Result: ${data.result}`;
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "cougarcalc",
+  "version": "1.0.0",
+  "description": "A simple arithmetic calculator web app",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "node --test"
+  },
+  "keywords": ["calculator", "express", "node"],
+  "author": "OpenAI",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

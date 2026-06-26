@@ -11,9 +11,9 @@
         --panel-border: #e3d8c4;
         --text: #2f2a24;
         --muted: #7a6b58;
-        --accent: #b23a48;
-        --accent-dark: #8f2734;
-        --accent-soft: #e9c6cc;
+        --accent: #1E3A5F;
+        --accent-dark: #142c46;
+        --accent-soft: #d7e3f0;
         --gold: #d99f2b;
         --gold-dark: #b57f14;
         --button: #fdf7eb;
@@ -43,22 +43,24 @@
       }
 
       .header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 108px;
         gap: 12px;
+        align-items: start;
         margin-bottom: 12px;
       }
 
       .header-text {
-        flex: 1;
+        min-width: 0;
       }
 
       img {
-        width: 156px;
-        height: 156px;
+        width: 118px;
+        height: 118px;
         object-fit: contain;
         filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.2));
+        margin-top: 0;
+        align-self: stretch;
       }
 
       h1 {
@@ -80,6 +82,8 @@
         padding: 12px;
         margin-bottom: 12px;
         min-height: 56px;
+        width: 100%;
+        box-sizing: border-box;
       }
 
       .formula {
@@ -173,13 +177,12 @@
         <div class="header-text">
           <h1>CougarCalc</h1>
           <p class="subtitle">A classic calculator style for quick arithmetic.</p>
+          <div class="display">
+            <div id="formula" class="formula">0</div>
+            <div id="result" class="result">0</div>
+          </div>
         </div>
         <img src="/cougar-icon-v2.png" alt="CougarCalc logo" />
-      </div>
-
-      <div class="display">
-        <div id="formula" class="formula">0</div>
-        <div id="result" class="result">0</div>
       </div>
 
       <div class="layout">

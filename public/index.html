@@ -5,113 +5,294 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CougarCalc</title>
     <style>
+      :root {
+        --bg: #f4efe7;
+        --panel: #fffaf2;
+        --panel-border: #e3d8c4;
+        --text: #2f2a24;
+        --muted: #7a6b58;
+        --accent: #b23a48;
+        --accent-dark: #8f2734;
+        --accent-soft: #e9c6cc;
+        --gold: #d99f2b;
+        --gold-dark: #b57f14;
+        --button: #fdf7eb;
+        --button-hover: #f4e7d4;
+      }
+
       body {
         font-family: Arial, sans-serif;
-        background: #f4f7fb;
-        color: #1f2a44;
+        background: linear-gradient(135deg, #f7f2e8 0%, #efe0c6 100%);
+        color: var(--text);
         display: flex;
         align-items: center;
         justify-content: center;
         min-height: 100vh;
         margin: 0;
+        padding: 16px;
+        box-sizing: border-box;
       }
 
       .card {
-        background: white;
-        padding: 24px;
-        border-radius: 16px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-        width: min(90vw, 360px);
-        text-align: center;
+        background: var(--panel);
+        padding: 20px;
+        border-radius: 18px;
+        box-shadow: 0 10px 24px rgba(90, 58, 31, 0.16);
+        width: min(96vw, 420px);
+        border: 1px solid var(--panel-border);
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .header-text {
+        flex: 1;
       }
 
       img {
-        width: 120px;
-        margin-bottom: 16px;
+        width: 156px;
+        height: 156px;
+        object-fit: contain;
+        filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.2));
       }
 
       h1 {
-        margin: 0 0 8px;
+        margin: 0 0 6px;
         font-size: 24px;
+        color: var(--accent);
       }
 
-      .row {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 10px;
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
       }
 
-      input, select, button {
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid #cfd8e3;
+      .display {
+        background: #fffdf8;
+        border: 1px solid var(--panel-border);
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 12px;
+        min-height: 56px;
+      }
+
+      .formula {
         font-size: 16px;
-      }
-
-      input {
-        width: 100px;
-      }
-
-      select {
-        width: 70px;
-      }
-
-      button {
-        width: 100%;
-        background: #2f6fed;
-        color: white;
-        border: none;
-        cursor: pointer;
+        color: var(--muted);
+        margin-bottom: 6px;
+        min-height: 20px;
       }
 
       .result {
-        margin-top: 14px;
-        font-size: 20px;
+        font-size: 24px;
         font-weight: bold;
+        color: var(--accent-dark);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 1fr 76px;
+        gap: 12px;
+      }
+
+      .keypad {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+      }
+
+      .operators {
+        display: grid;
+        gap: 8px;
+      }
+
+      button {
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid var(--panel-border);
+        font-size: 16px;
+        cursor: pointer;
+        background: var(--button);
+        color: var(--text);
+      }
+
+      button:hover {
+        background: var(--button-hover);
+      }
+
+      .action {
+        background: var(--accent);
+        color: white;
+        border: none;
+      }
+
+      .action:hover {
+        background: var(--accent-dark);
+      }
+
+      .operator {
+        background: var(--gold);
+        color: white;
+        border: none;
+      }
+
+      .operator:hover {
+        background: var(--gold-dark);
+      }
+
+      .history {
+        margin-top: 12px;
+        border-top: 1px solid var(--panel-border);
+        padding-top: 10px;
+      }
+
+      .history button {
+        width: 100%;
+        margin-top: 6px;
+        background: #fffdf8;
+      }
+
+      .history-list {
+        max-height: 90px;
+        overflow-y: auto;
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 6px;
       }
     </style>
   </head>
   <body>
     <div class="card">
-      <img src="/CougarCalc.png" alt="CougarCalc logo" />
-      <h1>CougarCalc</h1>
-      <p>A simple calculator for basic arithmetic.</p>
-      <div class="row">
-        <input id="a" type="number" value="0" />
-        <select id="operation">
-          <option value="+">+</option>
-          <option value="-">-</option>
-          <option value="*">×</option>
-          <option value="/">÷</option>
-        </select>
-        <input id="b" type="number" value="0" />
+      <div class="header">
+        <div class="header-text">
+          <h1>CougarCalc</h1>
+          <p class="subtitle">A classic calculator style for quick arithmetic.</p>
+        </div>
+        <img src="/cougar-icon-v2.png" alt="CougarCalc logo" />
       </div>
-      <button id="calculate">Calculate</button>
-      <div id="result" class="result">Result: 0</div>
+
+      <div class="display">
+        <div id="formula" class="formula">0</div>
+        <div id="result" class="result">0</div>
+      </div>
+
+      <div class="layout">
+        <div class="keypad">
+          <button data-value="7">7</button>
+          <button data-value="8">8</button>
+          <button data-value="9">9</button>
+          <button id="clear">C</button>
+          <button data-value="4">4</button>
+          <button data-value="5">5</button>
+          <button data-value="6">6</button>
+          <button id="backspace">⌫</button>
+          <button data-value="1">1</button>
+          <button data-value="2">2</button>
+          <button data-value="3">3</button>
+          <button data-value=".">.</button>
+          <button data-value="0">0</button>
+          <button data-value="00">00</button>
+          <button data-value="(">(</button>
+          <button data-value=")">)</button>
+        </div>
+
+        <div class="operators">
+          <button class="operator" data-value="+">+</button>
+          <button class="operator" data-value="-">−</button>
+          <button class="operator" data-value="*">×</button>
+          <button class="operator" data-value="/">÷</button>
+          <button class="action" id="equals">=</button>
+        </div>
+      </div>
+
+      <div class="history">
+        <button id="historyToggle">History</button>
+        <div id="historyList" class="history-list"></div>
+      </div>
     </div>
 
     <script>
-      const calculateButton = document.getElementById('calculate');
+      const formulaNode = document.getElementById('formula');
       const resultNode = document.getElementById('result');
+      const historyList = document.getElementById('historyList');
+      const historyToggle = document.getElementById('historyToggle');
+      const clearButton = document.getElementById('clear');
+      const backspaceButton = document.getElementById('backspace');
+      const equalsButton = document.getElementById('equals');
+      const keypadButtons = document.querySelectorAll('[data-value]');
 
-      calculateButton.addEventListener('click', async () => {
-        const a = document.getElementById('a').value;
-        const b = document.getElementById('b').value;
-        const operation = document.getElementById('operation').value;
+      let formula = '0';
+      let history = [];
+      let historyVisible = false;
 
+      function updateDisplay() {
+        formulaNode.textContent = formula;
+        resultNode.textContent = '0';
+      }
+
+      function appendValue(value) {
+        if (formula === '0') {
+          formula = value;
+        } else {
+          formula += value;
+        }
+        updateDisplay();
+      }
+
+      function clearFormula() {
+        formula = '0';
+        updateDisplay();
+      }
+
+      function backspace() {
+        if (formula.length <= 1) {
+          formula = '0';
+        } else {
+          formula = formula.slice(0, -1);
+        }
+        updateDisplay();
+      }
+
+      function toggleHistory() {
+        historyVisible = !historyVisible;
+        historyList.style.display = historyVisible ? 'block' : 'none';
+        historyToggle.textContent = historyVisible ? 'Hide History' : 'History';
+      }
+
+      keypadButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          appendValue(button.dataset.value);
+        });
+      });
+
+      clearButton.addEventListener('click', clearFormula);
+      backspaceButton.addEventListener('click', backspace);
+      historyToggle.addEventListener('click', toggleHistory);
+      historyList.style.display = 'none';
+
+      equalsButton.addEventListener('click', async () => {
         const response = await fetch('/calculate', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ a, b, operation })
+          body: JSON.stringify({ expression: formula })
         });
 
         const data = await response.json();
         if (!response.ok) {
-          resultNode.textContent = `Error: ${data.error}`;
+          resultNode.textContent = 'Error';
           return;
         }
 
-        resultNode.textContent = `Result: ${data.result}`;
+        history.unshift(`${formula} = ${data.result}`);
+        history = history.slice(0, 8);
+        historyList.innerHTML = history.map((item) => `<div>${item}</div>`).join('');
+        resultNode.textContent = data.result;
       });
     </script>
   </body>

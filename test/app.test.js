@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { app } = require('../app');
+const { app, normalizeAddress } = require('../app');
 
 test('POST /calculate returns the correct result for an expression', async () => {
   const server = app.listen(0);
@@ -57,4 +57,10 @@ test('POST /calculate returns the correct result for addition', async () => {
   } finally {
     server.close();
   }
+});
+
+test('normalizeAddress returns a readable loopback value for localhost requests', () => {
+  assert.equal(normalizeAddress('::1'), '127.0.0.1');
+  assert.equal(normalizeAddress('::ffff:127.0.0.1'), '127.0.0.1');
+  assert.equal(normalizeAddress(undefined), 'unknown');
 });

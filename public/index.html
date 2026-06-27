@@ -75,6 +75,29 @@
         font-size: 14px;
       }
 
+      .environment-badge {
+        display: inline-block;
+        margin-top: 6px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: bold;
+      }
+
+      .nickname-row {
+        margin-top: 8px;
+      }
+
+      .nickname-row input {
+        width: 100%;
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid var(--panel-border);
+        box-sizing: border-box;
+      }
+
       .display {
         background: #fffdf8;
         border: 1px solid var(--panel-border);
@@ -177,6 +200,10 @@
         <div class="header-text">
           <h1>CougarCalc</h1>
           <p class="subtitle">A classic calculator style for quick arithmetic.</p>
+          <div id="environmentBadge" class="environment-badge">Checking environment…</div>
+          <div class="nickname-row">
+            <input id="nickname" type="text" maxlength="24" placeholder="Nickname (optional)" />
+          </div>
           <div class="display">
             <div id="formula" class="formula">0</div>
             <div id="result" class="result">0</div>
@@ -220,6 +247,7 @@
       </div>
     </div>
 
+    <script src="/calculator-logic.js"></script>
     <script>
       const formulaNode = document.getElementById('formula');
       const resultNode = document.getElementById('result');
@@ -230,19 +258,13 @@
       const equalsButton = document.getElementById('equals');
       const keypadButtons = document.querySelectorAll('[data-value]');
       const display = document.querySelector('.display');
+      const environmentBadge = document.getElementById('environmentBadge');
+      const nicknameInput = document.getElementById('nickname');
+      const { appendValue: appendValueLogic, formatResult } = window.CalculatorLogic;
 
       let formula = '0';
       let history = [];
       let historyVisible = true;
-
-      function formatResult(value) {
-        if (!Number.isFinite(value)) {
-          return 'Error';
-        }
-
-        const rounded = Number(value.toFixed(10));
-        return rounded.toString();
-      }
 
       function updateDisplay() {
         formulaNode.textContent = formula;
@@ -250,27 +272,7 @@
       }
 
       function appendValue(value) {
-        const isDigit = /^[0-9]$/.test(value);
-        const isOperator = /^[+\-*/()]$/.test(value);
-
-        if (value === '00') {
-          if (formula === '0' || formula === '') {
-            formula = '0';
-          } else if (/[+\-*/(]$/.test(formula)) {
-            formula += '0';
-          } else {
-            formula += '00';
-          }
-        } else if (formula === '0' && isDigit) {
-          formula = value;
-        } else if (formula === '0' && value === '.') {
-          formula = '0.';
-        } else if (value === '.' && formula.includes('.')) {
-          return;
-        } else {
-          formula += value;
-        }
-
+        formula = appendValueLogic(formula, value);
         updateDisplay();
       }
 
@@ -340,11 +342,20 @@
       display.addEventListener('keydown', handleKeyboardInput);
       display.setAttribute('tabindex', '0');
 
+      fetch('/environment')
+        .then((response) => response.json())
+        .then((data) => {
+          environmentBadge.textContent = `Hosting: ${data.environment}`;
+        })
+        .catch(() => {
+          environmentBadge.textContent = 'Hosting: Unknown';
+        });
+
       equalsButton.addEventListener('click', async () => {
         const response = await fetch('/calculate', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ expression: formula })
+          body: JSON.stringify({ expression: formula, nickname: nicknameInput.value.trim() })
         });
 
         const data = await response.json();

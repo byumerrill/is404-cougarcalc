@@ -10,4 +10,4 @@ The items below are still pending and should be reviewed in future work.
 1. Consider showing a more detailed environment hint, such as host name or deployment region, if needed.
 
 ## BUGS to fix
-- Review any other calculator edge cases that may still appear during extended use.
+- No pending bugs at the moment.

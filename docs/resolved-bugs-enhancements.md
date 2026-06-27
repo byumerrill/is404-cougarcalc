@@ -15,3 +15,7 @@ The following items have been implemented and are now complete.
 ## RESOLVED: Parenthesis-first calculator bug
 - Fixed the input logic so typing "(" first replaces the initial zero instead of producing "0(".
 - The calculator now evaluates expressions correctly after that input pattern.
+
+## RESOLVED: LocalAddress logging for localhost requests
+- Fixed the request logging issue so localhost traffic in development environments now records a meaningful LocalAddress value.
+- The log output is now consistent for local requests made from the same machine.

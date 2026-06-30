@@ -78,6 +78,137 @@ Browser → Express Server (read request) → Calculator Logic (validate & compu
 - **Express Server responds**: `app.js` sends the result back as JSON
 - **Browser displays**: `public/index.html` receives the JSON and updates the display
 
+## Client-Side vs Server-Side Code
+
+One of the most important concepts for understanding web apps is knowing **where code runs**.
+
+### The Key Difference
+
+- **Client-side code** runs on *your computer* in your web browser
+- **Server-side code** runs on *a different computer* that serves the web pages
+
+### Development vs Production
+
+**During Development (running locally on your laptop):**
+- Client-side code: Runs in your browser
+- Server-side code: Runs in Node.js on your same laptop
+- Communication: Happens via HTTP on `localhost:3000`
+
+**In Production (deployed to AWS or another cloud provider):**
+- Client-side code: Still runs in your browser (or any user's browser)
+- Server-side code: Runs on AWS servers (e.g., Elastic Beanstalk or Lightsail)
+- Communication: Happens via HTTP over the internet to your AWS domain
+
+In both cases, the client-side and server-side code are separate and communicate using HTTP. The main difference is *where* the server-side code runs.
+
+### Where Code Runs in CougarCalc (Development Environment)
+
+The diagram below shows how the code runs when you're developing locally. On the left is the client-side code (in your browser). On the right is the server-side code (Node.js running on your laptop during development).
+
+```mermaid
+flowchart TB
+    subgraph Client["🌐 CLIENT-SIDE"]
+        direction TB
+        HTML["HTML: Calculator buttons<br/>and display"]
+        CSS["CSS: Visual styling"]
+        JS["JavaScript: Handle<br/>button clicks and<br/>keyboard input"]
+        HTML -.-> CSS
+        CSS -.-> JS
+    end
+    
+    subgraph Server["⚙️ SERVER-SIDE"]
+        direction TB
+        APP["app.js:<br/>Express server receives<br/>requests"]
+        CALC["calculator-logic.js:<br/>Validates and<br/>performs calculation"]
+        APP --> CALC
+    end
+    
+    JS -->|"Send expression<br/>over HTTP"| APP
+    CALC -->|"Send result<br/>over HTTP"| JS
+    
+    style Client fill:#e1f5ff,stroke:#01579b,stroke-width:2px,color:#000
+    style Server fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
+```
+
+**During Development:** 
+- **Client-side** (left): Runs in your web browser on your laptop
+- **Server-side** (right): Runs in Node.js on your same laptop
+- Communication: HTTP over `localhost:3000`
+
+**In Production (deployed to AWS):**
+- **Client-side** (left): Still runs in web browsers (unchanged)
+- **Server-side** (right): Runs on AWS servers instead of your laptop
+- Communication: HTTP over the internet to your AWS domain
+
+### Client-Side: `public/index.html`
+
+This file runs **in your browser** and includes:
+
+- **HTML**: Defines the structure (buttons, display screen, etc.)
+- **CSS**: Makes it look like a calculator
+- **JavaScript**: Makes it interactive
+  - Listens for your button clicks and keyboard input
+  - Updates the display in real-time
+  - Sends requests to the server
+  - Receives responses and displays the results
+
+**You experience this directly** — you see it, click it, and interact with it.
+
+### Server-Side: `app.js` and `public/calculator-logic.js`
+
+This code runs **on the server** (Node.js) and includes:
+
+- **app.js**: The Express framework
+  - Receives HTTP requests from the browser
+  - Routes them to the right handler
+  - Sends HTTP responses back
+- **calculator-logic.js** (called by app.js): The calculation engine
+  - Validates the expression
+  - Performs the math
+  - Returns the result
+
+**You don't see this directly** — it works behind the scenes.
+
+### Why Both?
+
+You might wonder: "If JavaScript can do calculations in the browser (`public/index.html`), why do we send it to the server (`app.js`)?"
+
+Good question! Here are the reasons:
+
+1. **Security**: The server validates and sanitizes input to prevent malicious code
+2. **Consistency**: The official answer comes from the server, not the browser
+3. **Logging**: The server can record what calculations users are doing
+4. **Scalability**: Complex apps might need server power for heavy calculations
+5. **Data persistence**: The server can save information to a database
+
+In CougarCalc, this separation keeps the code clean and teaches you how real web apps work.
+
+### Summary: The Flow
+
+1. **You click a button** (happens in the browser, client-side)
+2. **Browser JavaScript responds** (client-side) by building the expression
+3. **Browser sends the expression to the server** (communication over HTTP)
+4. **Server JavaScript processes it** (server-side) and calculates the result
+5. **Server sends the result back** (communication over HTTP)
+6. **Browser JavaScript receives it** (client-side) and updates the display
+7. **You see the answer** (happens in the browser, client-side)
+
+### Important: Development vs Production Deployment
+
+**While developing on your laptop:**
+- When you run `npm start`, Node.js starts the server on your machine
+- You access it at `http://localhost:3000`
+- Both client and server code are on the same machine, but they're still separate
+
+**When deployed to AWS (or any cloud server):**
+- Your `public/` folder (client-side code) gets served by the AWS server
+- Your `app.js` (server-side code) runs on the AWS server
+- Users access it via your domain name (e.g., `www.mycalculator.com`)
+- The HTTP communication between browser and server happens over the internet instead of locally
+- The code flow remains the same — only the physical location changes
+
+This is one of the beautiful things about web apps: the same code works whether deployed locally or globally!
+
 ## Detailed File Descriptions
 
 ### Backend Files

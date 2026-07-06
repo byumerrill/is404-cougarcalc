@@ -1,6 +1,6 @@
 CougarCalc is a simple demo calculator app built with Node.js, Express, and JavaScript.
 
-## How to run the app on your computer
+# How to run the app on your computer
 
 ### If this is your first time setting everything up
 1. Open Git Bash.
@@ -34,7 +34,7 @@ CougarCalc is a simple demo calculator app built with Node.js, Express, and Java
 4. Click "Calculate".
 5. You should see the result appear on the screen.
 
-## How to test the calculation endpoint from the terminal
+# How to test the calculation endpoint from the terminal
 
 The calculator can also be tested without using the browser. The app has an endpoint named /calculate. An endpoint is a URL that accepts a request and sends a response back.
 

@@ -133,6 +133,31 @@ It is responsible for:
 - evaluating the arithmetic
 - returning the result as JSON
 
+## Does this app use REST?
+
+Yes, CougarCalc uses HTTP endpoints in a REST-like way.
+
+For a beginner, it helps to think of REST as a common style for communication between a browser and a server. The browser sends a request to a URL, the server does some work, and the server sends a response back. That request usually uses an HTTP method such as GET or POST.
+
+This app has a few important routes:
+
+- GET /
+  - Sends the main calculator page to the browser.
+  - This is what loads public/index.html.
+
+- POST /calculate
+  - Receives a calculation request from the browser.
+  - The browser sends JSON that includes the expression the user typed.
+  - The server calculates the answer.
+  - The server sends JSON back, such as a result number or an error message.
+
+- GET /environment
+  - Sends a small JSON response that tells the browser whether the app is running in Development or Production mode.
+
+The most important endpoint is POST /calculate. In public/index.html, the frontend uses fetch('/calculate') to send the expression to the backend. In app.js, Express receives that request with app.post('/calculate', ...).
+
+This is not a large, fully resource-based REST API. For example, it does not have routes like GET /calculations, POST /calculations, or DELETE /calculations/:id. Instead, it is a small web app with simple JSON HTTP endpoints. That is why it is fair to call it REST-like or API-based, especially for learning how frontend and backend code talk to each other.
+
 ## How the tests work
 
 The tests in test/app.test.js check that the server returns the correct results for sample expressions.

@@ -30,6 +30,11 @@ function normalizeAddress(address) {
   return normalizedAddress;
 }
 
+function appendCalculationLog(logLine) {
+  fs.mkdirSync(path.dirname(logFilePath), { recursive: true });
+  fs.appendFileSync(logFilePath, `${logLine}\n`);
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 app.use(express.json());
@@ -73,7 +78,7 @@ app.post('/calculate', (req, res) => {
         JSON.stringify((nickname || 'Anonymous').toString()),
         JSON.stringify(expression)
       ].join(',');
-      fs.appendFileSync(logFilePath, `${logLine}\n`);
+      appendCalculationLog(logLine);
 
       return res.json({ result: normalizedResult === 0 ? 0 : normalizedResult });
     } catch (error) {

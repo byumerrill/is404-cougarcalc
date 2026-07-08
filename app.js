@@ -4,6 +4,7 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 const logFilePath = path.join(__dirname, 'logs', 'user-requests.csv');
 const environmentLabel = process.env.NODE_ENV === 'production' ? 'Production' : 'Development';
 
@@ -118,8 +119,9 @@ app.post('/calculate', (req, res) => {
 });
 
 if (require.main === module) {
-  app.listen(PORT, '127.0.0.1', () => {
-    console.log(`CougarCalc listening on http://localhost:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`CougarCalc listening on http://${HOST}:${PORT}`);
+    console.log(`From another device, use http://<this-computer-ip>:${PORT}`);
   });
 }
 

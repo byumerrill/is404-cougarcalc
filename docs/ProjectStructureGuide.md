@@ -103,7 +103,7 @@ In both cases, the client-side and server-side code are separate and communicate
 
 ### Where Code Runs in CougarCalc (Development Environment)
 
-The diagram below shows how the code runs when you're developing locally. On the left is the client-side code (in your browser). On the right is the server-side code (Node.js running on your laptop during development).
+The diagram below shows how the code runs when you're developing locally. On the top is the client-side code (in your browser). On the bottom is the server-side code (Node.js running on your laptop during development).
 
 ```mermaid
 flowchart TB
@@ -131,13 +131,13 @@ flowchart TB
 ```
 
 **During Development:** 
-- **Client-side** (left): Runs in your web browser on your laptop
-- **Server-side** (right): Runs in Node.js on your same laptop
+- **Client-side**: Runs in your web browser on your laptop
+- **Server-side**: Runs in Node.js on your same laptop
 - Communication: HTTP over `localhost:3000`
 
 **In Production (deployed to AWS):**
-- **Client-side** (left): Still runs in web browsers (unchanged)
-- **Server-side** (right): Runs on AWS servers instead of your laptop
+- **Client-side**: Still runs in web browsers (unchanged)
+- **Server-side**: Runs on AWS servers instead of your laptop
 - Communication: HTTP over the internet to your AWS domain
 
 ### Client-Side: `public/index.html`

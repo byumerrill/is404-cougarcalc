@@ -27,14 +27,14 @@ CougarCalc is a simple demo calculator app built with Node.js, Express, and Java
 4. Open your browser and go to:
    http://localhost:3000
 
-## How to test the app
+# How to test the app
 1. Open the calculator page in your browser.
 2. Enter two numbers.
 3. Choose an operation (+, -, *, /).
 4. Click "Calculate".
 5. You should see the result appear on the screen.
 
-# How to test the calculation endpoint from the terminal
+## How to test the calculation endpoint from the terminal
 
 The calculator can also be tested without using the browser. The app has an endpoint named /calculate. An endpoint is a URL that accepts a request and sends a response back.
 
@@ -191,3 +191,173 @@ What each part means:
 - If "node" or "npm" is not recognized, close and reopen Git Bash and try again.
 - If the app does not open, make sure you ran "npm start" first.
 - If the logo does not show, make sure the image file named CougarCalc.png is still in the project folder.
+
+
+# How to test from an API client (Bruno)
+
+
+## Downloading Bruno
+
+Bruno is a free, local-first API client that can be used to send HTTP requests to the CougarCalc backend.
+
+### Option 1: Download from the official website
+
+1. Go to the official Bruno download page:
+
+   ```text
+   https://www.usebruno.com/downloads
+   ```
+
+2. Download the Windows version.
+
+3. Install Bruno using the downloaded installer.
+
+For safety, download Bruno only from the official Bruno website or the official Bruno GitHub repository. Avoid third-party download sites or sponsored download links.
+
+### Option 2: Install with Windows Package Manager
+
+If you have `winget` installed, you can install Bruno from PowerShell or Windows Terminal:
+
+```powershell
+winget install --id Bruno.Bruno -e
+```
+
+After installation, open Bruno from the Start Menu.
+
+---
+
+## Configuring and Sending the POST Request
+
+CougarCalc has a backend endpoint that receives calculator expressions using an HTTP `POST` request.
+
+The endpoint is:
+
+```text
+POST /calculate
+```
+
+When running the app locally, the full URL is usually:
+
+```text
+http://localhost:3000/calculate
+```
+
+### 1. Start the CougarCalc app
+
+Before sending a request from Bruno, make sure the CougarCalc app is running.
+
+From the project folder, run:
+
+```bash
+npm start
+```
+
+Then confirm that the app opens in the browser:
+
+```text
+http://localhost:3000
+```
+
+### 2. Create a Bruno collection
+
+In Bruno:
+
+1. Click **Create Collection**.
+
+2. Name the collection:
+
+   ```text
+   CougarCalc
+   ```
+
+3. Choose a location for the collection.
+
+A good location is inside this project folder, such as:
+
+```text
+bruno/CougarCalc
+```
+
+Keeping the Bruno collection inside the project folder makes it easier to keep API examples with the source code.
+
+### 3. Create a new request
+
+Inside the CougarCalc collection, create a new request.
+
+Use these settings:
+
+```text
+Name: Calculate Expression
+Method: POST
+URL: http://localhost:3000/calculate
+```
+
+### 4. Add the request header
+
+In the **Headers** section, add:
+
+```text
+Content-Type: application/json
+```
+
+This tells the server that the request body is formatted as JSON.
+
+### 5. Add the JSON request body
+
+In the **Body** section, choose a JSON/raw body format and enter:
+
+```json
+{
+  "expression": "2 + 3 * 4"
+}
+```
+
+### 6. Send the request
+
+Click **Send**.
+
+You should receive a JSON response from the CougarCalc backend. The exact response format may vary depending on the app code, but it should include the calculated result.
+
+For example, the expression:
+
+```text
+2 + 3 * 4
+```
+
+should evaluate to:
+
+```text
+14
+```
+
+### 7. Try additional expressions
+
+You can test the backend by changing the JSON body and sending the request again.
+
+Example:
+
+```json
+{
+  "expression": "10 / 2"
+}
+```
+
+Example:
+
+```json
+{
+  "expression": "100 - 25 * 3"
+}
+```
+
+### 8. Compare Bruno to curl
+
+The Bruno request is equivalent to this `curl` command in Git Bash:
+
+```bash
+curl -X POST "http://localhost:3000/calculate" \
+  -H "Content-Type: application/json" \
+  -d '{"expression":"2 + 3 * 4"}'
+```
+
+Both Bruno and `curl` are HTTP clients. They can send the same kind of request that the browser sends when a user performs a calculation in the CougarCalc interface.

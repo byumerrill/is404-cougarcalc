@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
-const { app, environmentLabel, getEnvironmentLabel } = require('../app');
+const { app, getEnvironmentLabel } = require('../app');
 
 let server;
 let baseUrl;
@@ -145,7 +145,9 @@ test('GET /environment returns the active environment label', async () => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.deepEqual(body, { environment: environmentLabel });
+  assert.deepEqual(body, {
+    environment: getEnvironmentLabel(process.env.NODE_ENV || 'development')
+  });
 });
 
 test('environment labels distinguish production from development', () => {

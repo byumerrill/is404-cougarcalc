@@ -7,10 +7,15 @@
     "start": "node app.js",
     "test": "node --test"
   },
-  "keywords": ["calculator", "express", "node"],
+  "keywords": [
+    "calculator",
+    "express",
+    "node"
+  ],
   "author": "OpenAI",
   "license": "MIT",
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^4.21.2"
   }
 }

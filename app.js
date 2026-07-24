@@ -1,15 +1,15 @@
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
 function getEnvironmentLabel(nodeEnvironment) {
   return nodeEnvironment === 'production' ? 'Production' : 'Development';
 }
-
-const environmentLabel = getEnvironmentLabel(process.env.NODE_ENV);
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
@@ -89,7 +89,7 @@ if (require.main === module) {
 }
 
 app.get('/environment', (_req, res) => {
-  res.json({ environment: environmentLabel });
+  res.json({ environment: getEnvironmentLabel(NODE_ENV) });
 });
 
-module.exports = { app, environmentLabel, getEnvironmentLabel };
+module.exports = { app, getEnvironmentLabel };

@@ -35,8 +35,11 @@
       return '(';
     }
 
-    if (value === '.' && formula.includes('.')) {
-      return formula;
+    if (value === '.') {
+      const currentNumber = formula.split(/[+\-*/()]/).pop();
+      if (currentNumber.includes('.')) {
+        return formula;
+      }
     }
 
     return formula + value;

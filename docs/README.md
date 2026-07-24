@@ -36,10 +36,8 @@ The app is made of a few connected layers:
 ```mermaid
 flowchart LR
     A[User] --> B[Browser]
-    B --> C[Frontend JavaScript]
-    C --> D[Express Server]
-    D --> E[Calculator Logic]
-    E --> D
+    B --> C[Frontend JavaScript<br/>index.html + calculator-logic.js]
+    C --> D[Express Server<br/>app.js]
     D --> C
     C --> B
 ```
@@ -74,22 +72,19 @@ sequenceDiagram
 
 ### More detailed request-flow diagram
 
-A common way to show this kind of app more clearly is a sequence diagram that breaks the server work into smaller steps. This version shows the Express route, the validation step, and the calculator logic separately:
+A common way to show this kind of app more clearly is a sequence diagram that breaks the server work into smaller steps. The server validates and evaluates the expression directly in the `/calculate` route:
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant B as Browser
     participant E as Express Server
-    participant L as Calculator Logic
 
     U->>B: Press button or type key
     B->>E: POST /calculate with expression
     E->>E: Read request body
-    E->>L: Pass expression for evaluation
-    L->>L: Sanitize and validate input
-    L->>L: Compute result
-    L-->>E: Return numeric result
+    E->>E: Validate expression characters and syntax
+    E->>E: Compute and normalize result
     E-->>B: Send JSON response
     B->>B: Update display and history
     B-->>U: Show final answer
@@ -107,11 +102,18 @@ sequenceDiagram
   - Handles button clicks and keyboard input
   - Displays results and history
 
+- public/calculator-logic.js
+  - Builds expression strings from calculator input
+  - Formats numeric results for display
+
 - package.json
   - Lists dependencies and scripts such as npm start and npm test
 
 - test/app.test.js
-  - Contains automated tests for the calculator behavior
+  - Tests HTTP calculations, errors, pages, and environment responses
+
+- test/calculator-logic.test.js
+  - Tests browser-side expression building and result formatting
 
 ## How the frontend works
 
@@ -160,12 +162,14 @@ This is not a large, fully resource-based REST API. For example, it does not hav
 
 ## How the tests work
 
-The tests in test/app.test.js check that the server returns the correct results for sample expressions.
+The project uses Node.js's built-in test runner. The tests in `test/app.test.js` cover the server routes, valid calculations, invalid input, malformed JSON, and error responses. The tests in `test/calculator-logic.test.js` cover browser-side input and formatting behavior.
 
 A typical test flow is:
 1. Start the app in a test mode
 2. Send a request to the calculator endpoint
 3. Check that the response contains the expected result
+
+Pure frontend helpers are tested directly without starting a browser or server.
 
 ## Beginner-friendly glossary
 

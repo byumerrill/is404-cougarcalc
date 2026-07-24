@@ -1,81 +1,93 @@
-CougarCalc is a simple demo calculator app built with Node.js, Express, and JavaScript.
+# Running CougarCalc
 
-# How to run the app on your computer
+CougarCalc is a calculator application built with Node.js, Express, HTML, CSS, and JavaScript.
 
-### If this is your first time setting everything up
-1. Open Git Bash.
-2. Go to the project folder:
-   cd /c/vscode-projects/cougarcalc
-3. Check whether Node.js and npm are installed:
+## First-time setup
+
+1. Open a terminal such as Git Bash or PowerShell.
+2. Change to the folder where you cloned CougarCalc.
+3. Confirm that Node.js and npm are installed:
+
+   ```bash
    node -v
    npm -v
-   If you see version numbers, Node.js is ready.
-4. If needed, install Node.js from https://nodejs.org/ and then reopen Git Bash.
-5. Install the app's dependencies:
+   ```
+
+4. If necessary, install Node.js from <https://nodejs.org/> and reopen the terminal.
+5. Install the project dependencies:
+
+   ```bash
    npm install
+   ```
+
 6. Start the app:
+
+   ```bash
    npm start
-7. Open your browser and go to:
-   http://localhost:3000
+   ```
 
-### If you already set everything up
-1. Open Git Bash.
-2. Go to the project folder:
-   cd /c/vscode-projects/cougarcalc
-3. Start the app:
-   npm start
-4. Open your browser and go to:
-   http://localhost:3000
+The console should show output similar to:
 
-# How to test the app
-1. Open the calculator page in your browser.
-2. Enter two numbers.
-3. Choose an operation (+, -, *, /).
-4. Click "Calculate".
-5. You should see the result appear on the screen.
+```text
+CougarCalc listening on all IPv4 network interfaces (0.0.0.0) on port 3000
+On this computer, use http://localhost:3000
+From another device, use http://<this-computer-ip>:3000
+```
 
-## How to test the calculation endpoint from the terminal
+`0.0.0.0` means the server listens on all available IPv4 network interfaces. It is a listening address, not the address you normally enter in a browser.
 
-The calculator can also be tested without using the browser. The app has an endpoint named /calculate. An endpoint is a URL that accepts a request and sends a response back.
+## Opening the app
 
-Before running these commands, make sure the app is already running:
+From the computer running CougarCalc, open:
 
-   npm start
+```text
+http://localhost:3000
+```
 
-The examples below send this expression to the app:
+From another device on the same network, replace `<this-computer-ip>` with the server computer's local network address:
 
-   2 + 3 * 4
+```text
+http://<this-computer-ip>:3000
+```
 
-The expected result is 14 because multiplication happens before addition.
+Firewall and network settings may prevent access from other devices. Listening on `0.0.0.0` does not automatically expose the app to the public internet.
 
-### PowerShell example
+## Using the calculator
 
-This example is well suited for PowerShell:
+1. Build an expression with the calculator buttons or keyboard, such as `2 + 3 * 4`.
+2. Press the `=` button or the Enter key.
+3. The answer appears in the result display.
+4. Successful calculations appear in the page's recent history.
+
+The C button clears the expression. Backspace removes the last character. Escape or Delete also clears the expression when the calculator display has keyboard focus.
+
+## Testing the API from PowerShell
+
+Make sure the app is running, then use:
 
 ```powershell
 $body = @{
   expression = "2 + 3 * 4"
 } | ConvertTo-Json
 
-Invoke-RestMethod -Method POST -Uri "http://localhost:3000/calculate" -ContentType "application/json" -Body $body
+Invoke-RestMethod `
+  -Method POST `
+  -Uri "http://localhost:3000/calculate" `
+  -ContentType "application/json" `
+  -Body $body
 ```
 
-What is happening here:
+The response should contain:
 
-- $body creates the information that will be sent to the app.
-- expression = "2 + 3 * 4" is the calculation we want the server to solve.
-- ConvertTo-Json turns the PowerShell object into JSON, which is a common data format for web APIs.
-- Invoke-RestMethod sends an HTTP request to the app.
-- -Method POST means we are sending data to the server.
-- -Uri "http://localhost:3000/calculate" is the endpoint we are sending the request to.
-- -ContentType "application/json" tells the server that the body is JSON.
-- -Body $body attaches the calculation data to the request.
+```text
+result
+------
+    14
+```
 
-If everything is working, PowerShell should show a response with a result of 14.
+## Testing the API with curl
 
-### Git Bash curl example
-
-This example is well suited for Git Bash:
+From Git Bash:
 
 ```bash
 curl -X POST "http://localhost:3000/calculate" \
@@ -83,20 +95,13 @@ curl -X POST "http://localhost:3000/calculate" \
   -d '{"expression":"2 + 3 * 4"}'
 ```
 
-What is happening here:
+Expected JSON response:
 
-- curl is a terminal tool for making web requests.
-- -X POST tells curl to use the POST method.
-- "http://localhost:3000/calculate" is the calculator endpoint.
-- -H "Content-Type: application/json" adds a header that tells the server we are sending JSON.
-- -d '{"expression":"2 + 3 * 4"}' sends the JSON data.
-- The backslashes let the command continue onto multiple lines in Git Bash.
+```json
+{"result":14}
+```
 
-If everything is working, Git Bash should print a JSON response that includes "result":14.
-
-### Git Bash curl example with headers
-
-This version is almost the same as the previous curl command, but it adds -i:
+Add `-i` to include HTTP response headers:
 
 ```bash
 curl -i -X POST "http://localhost:3000/calculate" \
@@ -104,260 +109,78 @@ curl -i -X POST "http://localhost:3000/calculate" \
   -d '{"expression":"2 + 3 * 4"}'
 ```
 
-The -i option tells curl to include the response headers in the output.
+Exact generated headers such as `Date`, `ETag`, and `Content-Length` can vary.
 
-Headers are extra details about the response. For example, headers can show whether the request was successful, what type of data came back, how large the response is, and which server handled the request.
+## Error responses
 
-With -i, the output can look like this:
+Invalid requests return HTTP status `400` and a JSON error. Examples include:
 
-```text
-HTTP/1.1 200 OK
-X-Powered-By: Express
-Content-Type: application/json; charset=utf-8
-Content-Length: 13
-ETag: W/"d-S6jYU4iwxBNDb2+TNuFdPoEKkHc"
-Date: Mon, 06 Jul 2026 16:02:44 GMT
-Connection: keep-alive
-Keep-Alive: timeout=5
+- an empty or malformed expression;
+- unsupported characters;
+- division by zero;
+- a non-finite result; and
+- malformed JSON.
 
-{"result":14}
+For example:
+
+```bash
+curl -i -X POST "http://localhost:3000/calculate" \
+  -H "Content-Type: application/json" \
+  -d '{"expression":"1 / 0"}'
 ```
 
-What each part means:
+## Running automated tests
 
-- HTTP/1.1 200 OK
-  - This is the status line.
-  - HTTP/1.1 is the HTTP version.
-  - 200 OK means the request worked.
+Run the complete suite with:
 
-- X-Powered-By: Express
-  - This says the response came from an Express server.
-  - Express adds this header automatically unless the app turns it off.
+```bash
+npm test
+```
 
-- Content-Type: application/json; charset=utf-8
-  - This says the response body is JSON.
-  - charset=utf-8 tells the client what text encoding is being used.
+The project uses Node.js's built-in test runner; no separate test framework is required.
 
-- Content-Length: 13
-  - This says the response body is 13 bytes long.
-  - In this example, the body is {"result":14}.
+- `test/app.test.js` covers HTTP routes, calculations, validation, JSON errors, environment labels, and `404` responses.
+- `test/calculator-logic.test.js` covers browser-side input construction and result formatting.
 
-- ETag: W/"d-S6jYU4iwxBNDb2+TNuFdPoEKkHc"
-  - This is an identifier for this version of the response.
-  - Browsers and clients can use ETags for caching.
-  - The exact value is generated by the server, so it may be different on your machine.
+## Running the debug check
 
-- Date: Mon, 06 Jul 2026 16:02:44 GMT
-  - This is the date and time when the server sent the response.
-  - The time is shown in GMT, not necessarily your local time zone.
+The included diagnostic script starts the app on a temporary port, submits `1.001 - 1`, prints the response, and closes the server:
 
-- Connection: keep-alive
-  - This means the connection can stay open briefly instead of closing immediately.
-  - Keeping the connection open can make repeated requests faster.
+```bash
+node debug-check.js
+```
 
-- Keep-Alive: timeout=5
-  - This says the server may keep the connection open for about 5 seconds.
+## Testing with Bruno
 
-- Blank line
-  - The empty line separates the headers from the response body.
-
-- {"result":14}
-  - This is the response body.
-  - It is the actual JSON data returned by the calculator app.
-  - result is the name of the value, and 14 is the calculated answer.
-
-## How to run the automated test
-1. In Git Bash, make sure you are still in the project folder.
-2. Run:
-   npm test
-3. If everything is working, the test should pass.
-
-## How to add or update tests
-1. Open the test file:
-   test/app.test.js
-2. Add a new test block for the behavior you want to protect.
-3. Save the file.
-4. Run:
-   npm test
-5. If the new test fails, update the app code and run the tests again until they pass.
-
-## Good examples of new tests
-- divide by zero
-- multiplication
-- clear button behavior
-- decimal arithmetic
-
-## If you have trouble
-- If "node" or "npm" is not recognized, close and reopen Git Bash and try again.
-- If the app does not open, make sure you ran "npm start" first.
-- If the logo does not show, make sure the image file named CougarCalc.png is still in the project folder.
-
-
-# How to test from an API client (Bruno)
-
-
-## Downloading Bruno
-
-Bruno is a free, local-first API client that can be used to send HTTP requests to the CougarCalc backend.
-
-### Option 1: Download from the official website
-
-1. Go to the official Bruno download page:
-
-   ```text
-   https://www.usebruno.com/downloads
-   ```
-
-2. Download the Windows version.
-
-3. Install Bruno using the downloaded installer.
-
-For safety, download Bruno only from the official Bruno website or the official Bruno GitHub repository. Avoid third-party download sites or sponsored download links.
-
-### Option 2: Install with Windows Package Manager
-
-If you have `winget` installed, you can install Bruno from PowerShell or Windows Terminal:
+Bruno is an optional API client. Download it from <https://www.usebruno.com/downloads/> or install it on Windows with:
 
 ```powershell
 winget install --id Bruno.Bruno -e
 ```
 
-After installation, open Bruno from the Start Menu.
+To create a calculation request:
 
----
+1. Open or create a Bruno collection.
+2. Create a request named `Calculate Expression`.
+3. Set the method to `POST`.
+4. Set the URL to `http://localhost:3000/calculate`.
+5. Set `Content-Type` to `application/json`.
+6. Use this JSON body:
 
-## Configuring and Sending the POST Request
-
-CougarCalc has a backend endpoint that receives calculator expressions using an HTTP `POST` request.
-
-The endpoint is:
-
-```text
-POST /calculate
-```
-
-When running the app locally, the full URL is usually:
-
-```text
-http://localhost:3000/calculate
-```
-
-### 1. Start the CougarCalc app
-
-Before sending a request from Bruno, make sure the CougarCalc app is running.
-
-From the project folder, run:
-
-```bash
-npm start
-```
-
-Then confirm that the app opens in the browser:
-
-```text
-http://localhost:3000
-```
-
-### 2. Create a Bruno collection
-
-In Bruno:
-
-1. Click **Create Collection**.
-
-2. Name the collection:
-
-   ```text
-   CougarCalc
+   ```json
+   {
+     "expression": "2 + 3 * 4"
+   }
    ```
 
-3. Choose a location for the collection.
+7. Send the request and confirm the result is `14`.
 
-A good location is inside this project folder, such as:
+The repository's `bruno/CougarCalcCollection/` folder contains the current collection metadata.
 
-```text
-bruno/CougarCalc
-```
+## Troubleshooting
 
-Keeping the Bruno collection inside the project folder makes it easier to keep API examples with the source code.
-
-### 3. Create a new request
-
-Inside the CougarCalc collection, create a new request.
-
-Use these settings:
-
-```text
-Name: Calculate Expression
-Method: POST
-URL: http://localhost:3000/calculate
-```
-
-### 4. Add the request header
-
-In the **Headers** section, add:
-
-```text
-Content-Type: application/json
-```
-
-This tells the server that the request body is formatted as JSON.
-
-### 5. Add the JSON request body
-
-In the **Body** section, choose a JSON/raw body format and enter:
-
-```json
-{
-  "expression": "2 + 3 * 4"
-}
-```
-
-### 6. Send the request
-
-Click **Send**.
-
-You should receive a JSON response from the CougarCalc backend. The exact response format may vary depending on the app code, but it should include the calculated result.
-
-For example, the expression:
-
-```text
-2 + 3 * 4
-```
-
-should evaluate to:
-
-```text
-14
-```
-
-### 7. Try additional expressions
-
-You can test the backend by changing the JSON body and sending the request again.
-
-Example:
-
-```json
-{
-  "expression": "10 / 2"
-}
-```
-
-Example:
-
-```json
-{
-  "expression": "100 - 25 * 3"
-}
-```
-
-### 8. Compare Bruno to curl
-
-The Bruno request is equivalent to this `curl` command in Git Bash:
-
-```bash
-curl -X POST "http://localhost:3000/calculate" \
-  -H "Content-Type: application/json" \
-  -d '{"expression":"2 + 3 * 4"}'
-```
-
-Both Bruno and `curl` are HTTP clients. They can send the same kind of request that the browser sends when a user performs a calculation in the CougarCalc interface.
+- If `node` or `npm` is not recognized, install Node.js and reopen the terminal.
+- If the page does not open, confirm that `npm start` is still running and use `http://localhost:3000`.
+- If port 3000 is already in use, set a different `PORT` environment variable before starting the app.
+- If another device cannot connect, confirm the local IP address and check the server computer's firewall.
+- If the logo does not appear, confirm that `cougar-icon-v2.png` exists in the project root.

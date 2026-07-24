@@ -1,53 +1,25 @@
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
-const logFilePath = path.join(__dirname, 'logs', 'user-requests.csv');
-const environmentLabel = process.env.NODE_ENV === 'production' ? 'Production' : 'Development';
 
-function normalizeAddress(address) {
-  if (!address) {
-    return 'unknown';
-  }
-
-  const normalizedAddress = address.trim();
-
-  if (
-    normalizedAddress === '::1' ||
-    normalizedAddress === '0:0:0:0:0:0:0:1' ||
-    normalizedAddress === '::ffff:127.0.0.1' ||
-    normalizedAddress === '::ffff:0:1'
-  ) {
-    return '127.0.0.1';
-  }
-
-  if (normalizedAddress.startsWith('::ffff:')) {
-    return normalizedAddress.slice(7);
-  }
-
-  return normalizedAddress;
+function getEnvironmentLabel(nodeEnvironment) {
+  return nodeEnvironment === 'production' ? 'Production' : 'Development';
 }
 
-function appendCalculationLog(logLine) {
-  fs.mkdirSync(path.dirname(logFilePath), { recursive: true });
-  fs.appendFileSync(logFilePath, `${logLine}\n`);
-}
+const environmentLabel = getEnvironmentLabel(process.env.NODE_ENV);
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 app.use(express.json());
+app.use((error, _req, res, next) => {
+  if (error instanceof SyntaxError && error.status === 400 && 'body' in error) {
+    return res.status(400).json({ error: 'Please provide valid JSON.' });
+  }
 
-app.use((req, res, next) => {
-  const timestamp = new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
-  const localAddress = normalizeAddress(req.socket.localAddress);
-  const localPort = req.socket.localPort || '';
-  const remoteAddress = normalizeAddress(req.socket.remoteAddress);
-  const remotePort = req.socket.remotePort || '';
-  req.requestLog = { timestamp, localAddress, localPort, remoteAddress, remotePort };
-  next();
+  return next(error);
 });
 
 app.get('/', (req, res) => {
@@ -55,11 +27,11 @@ app.get('/', (req, res) => {
 });
 
 app.post('/calculate', (req, res) => {
-  const { expression, a, b, operation, nickname } = req.body;
+  const { expression, a, b, operation } = req.body || {};
 
-  if (typeof expression === 'string' && expression.trim() !== '') {
-    const sanitized = expression.replace(/\s+/g, '').replace(/[^0-9.+\-*/()]/g, '');
-    if (sanitized.trim() === '') {
+  if (typeof expression === 'string') {
+    const sanitized = expression.replace(/\s+/g, '');
+    if (sanitized === '' || /[^0-9.+\-*/()]/.test(sanitized)) {
       return res.status(400).json({ error: 'Please enter a valid expression.' });
     }
 
@@ -70,16 +42,6 @@ app.post('/calculate', (req, res) => {
       }
 
       const normalizedResult = Number(result.toFixed(10));
-      const logLine = [
-        req.requestLog.timestamp,
-        JSON.stringify(req.requestLog.localAddress),
-        req.requestLog.localPort,
-        JSON.stringify(req.requestLog.remoteAddress),
-        req.requestLog.remotePort,
-        JSON.stringify((nickname || 'Anonymous').toString()),
-        JSON.stringify(expression)
-      ].join(',');
-      appendCalculationLog(logLine);
 
       return res.json({ result: normalizedResult === 0 ? 0 : normalizedResult });
     } catch (error) {
@@ -120,7 +82,8 @@ app.post('/calculate', (req, res) => {
 
 if (require.main === module) {
   app.listen(PORT, HOST, () => {
-    console.log(`CougarCalc listening on http://${HOST}:${PORT}`);
+    console.log(`CougarCalc listening on all IPv4 network interfaces (${HOST}) on port ${PORT}`);
+    console.log(`On this computer, use http://localhost:${PORT}`);
     console.log(`From another device, use http://<this-computer-ip>:${PORT}`);
   });
 }
@@ -129,4 +92,4 @@ app.get('/environment', (_req, res) => {
   res.json({ environment: environmentLabel });
 });
 
-module.exports = { app, environmentLabel, normalizeAddress };
+module.exports = { app, environmentLabel, getEnvironmentLabel };

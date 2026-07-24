@@ -86,18 +86,6 @@
         font-weight: bold;
       }
 
-      .nickname-row {
-        margin-top: 8px;
-      }
-
-      .nickname-row input {
-        width: 100%;
-        padding: 8px;
-        border-radius: 8px;
-        border: 1px solid var(--panel-border);
-        box-sizing: border-box;
-      }
-
       .display {
         background: #fffdf8;
         border: 1px solid var(--panel-border);
@@ -201,9 +189,6 @@
           <h1>CougarCalc</h1>
           <p class="subtitle">A classic calculator style for quick arithmetic.</p>
           <div id="environmentBadge" class="environment-badge">Checking environment…</div>
-          <div class="nickname-row">
-            <input id="nickname" type="text" maxlength="24" placeholder="Nickname (optional)" />
-          </div>
           <div class="display">
             <div id="formula" class="formula">0</div>
             <div id="result" class="result">0</div>
@@ -259,7 +244,6 @@
       const keypadButtons = document.querySelectorAll('[data-value]');
       const display = document.querySelector('.display');
       const environmentBadge = document.getElementById('environmentBadge');
-      const nicknameInput = document.getElementById('nickname');
       const { appendValue: appendValueLogic, formatResult } = window.CalculatorLogic;
 
       let formula = '0';
@@ -355,7 +339,7 @@
         const response = await fetch('/calculate', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ expression: formula, nickname: nicknameInput.value.trim() })
+          body: JSON.stringify({ expression: formula })
         });
 
         const data = await response.json();

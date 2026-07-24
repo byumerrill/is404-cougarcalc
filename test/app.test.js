@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
-const { app, getEnvironmentLabel } = require('../app');
+const { app } = require('../app');
 
 let server;
 let baseUrl;
@@ -140,20 +140,14 @@ test('GET / serves the calculator page', async () => {
   assert.match(body, /CougarCalc/);
 });
 
-test('GET /environment returns the active environment label', async () => {
+test('GET /environment returns the active environment', async () => {
   const response = await fetch(`${baseUrl}/environment`);
   const body = await response.json();
 
   assert.equal(response.status, 200);
   assert.deepEqual(body, {
-    environment: getEnvironmentLabel(process.env.NODE_ENV || 'development')
+    environment: process.env.NODE_ENV || 'development'
   });
-});
-
-test('environment labels distinguish production from development', () => {
-  assert.equal(getEnvironmentLabel('production'), 'Production');
-  assert.equal(getEnvironmentLabel('development'), 'Development');
-  assert.equal(getEnvironmentLabel(undefined), 'Development');
 });
 
 test('an unknown route returns 404', async () => {

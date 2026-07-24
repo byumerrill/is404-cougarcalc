@@ -85,7 +85,7 @@ This file creates the Express application. Its responsibilities include:
 - handling expression and legacy two-operand calculation requests;
 - rejecting empty, malformed, or unsupported input;
 - rejecting division by zero and non-finite results;
-- returning the Development or Production label; and
+- returning the current `NODE_ENV` value; and
 - listening on the configured host and port when started directly.
 
 By default, the server listens on `0.0.0.0:3000`. The `0.0.0.0` host means all IPv4 network interfaces. Use `http://localhost:3000` from the same computer or the computer's network IP address from another device.
@@ -96,7 +96,7 @@ By default, the server listens on `0.0.0.0:3000`. The `0.0.0.0` host means all I
 |---|---|---|
 | `GET` | `/` | Serves the calculator page |
 | `POST` | `/calculate` | Validates and evaluates a calculation |
-| `GET` | `/environment` | Returns `Development` or `Production` |
+| `GET` | `/environment` | Returns the current `NODE_ENV` value |
 
 The browser sends expression requests in this form:
 

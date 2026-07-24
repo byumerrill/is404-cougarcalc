@@ -154,7 +154,7 @@ This app has a few important routes:
   - The server sends JSON back, such as a result number or an error message.
 
 - GET /environment
-  - Sends a small JSON response that tells the browser whether the app is running in Development or Production mode.
+  - Sends a small JSON response containing the app's current `NODE_ENV` value.
 
 The most important endpoint is POST /calculate. In public/index.html, the frontend uses fetch('/calculate') to send the expression to the backend. In app.js, Express receives that request with app.post('/calculate', ...).
 

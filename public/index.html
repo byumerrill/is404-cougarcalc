@@ -329,7 +329,9 @@
       fetch('/environment')
         .then((response) => response.json())
         .then((data) => {
-          environmentBadge.textContent = `Hosting: ${data.environment}`;
+          const environmentName =
+            data.environment.charAt(0).toUpperCase() + data.environment.slice(1);
+          environmentBadge.textContent = `Hosting: ${environmentName}`;
         })
         .catch(() => {
           environmentBadge.textContent = 'Hosting: Unknown';

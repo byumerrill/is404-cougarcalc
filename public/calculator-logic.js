@@ -36,8 +36,8 @@
     }
 
     if (value === '.') {
-      const currentNumber = formula.split(/[+\-*/()]/).pop();
-      if (currentNumber.includes('.')) {
+      const currentOperand = formula.split(/[+\-*/()]/).pop();
+      if (currentOperand.includes('.')) {
         return formula;
       }
     }

@@ -2,28 +2,32 @@
 
 The following items have been implemented and are now complete.
 
+## RESOLVED: Remove collection of request metadata
+
+- Removed the optional nickname field from the calculator UI and request payload.
+- Removed collection of local and remote IP addresses and ports.
+- Removed the CSV request log and all associated server logic.
+
 ## RESOLVED: Hosting environment label
+
 - Added a visible badge in the app UI showing whether the app is running in development or production.
 - The environment label is fetched dynamically from the server.
 
 ## RESOLVED: Parenthesis-first calculator bug
+
 - Fixed the input logic so typing "(" first replaces the initial zero instead of producing "0(".
 - The calculator now evaluates expressions correctly after that input pattern.
 
-## RESOLVED: Decimal entry across operands
-- Decimal points are checked against the current operand instead of the entire expression.
-- Expressions such as `1.2 + 3.4` can now be entered correctly.
+## RESOLVED: Decimal entry across multiple operands
 
-## RESOLVED: Calculation request validation
-- Invalid expression characters are rejected instead of being silently removed.
-- Empty, malformed, unsupported, and non-finite calculations return clear client errors.
-- Malformed JSON now returns a structured JSON error response.
+- Changed decimal suppression to inspect only the number currently being entered.
+- Button entry now permits expressions such as `1.5+2.5` while still rejecting a second decimal point in one operand.
+- Added table-driven tests for input normalization, decimal handling, operators, parentheses, rounding, and non-finite values.
 
-## RESOLVED: Expanded automated coverage
-- Added server tests for calculation branches, validation errors, malformed JSON, routes, and environment labels.
-- Added frontend-logic tests for zeroes, decimal entry, expression building, rounding, and non-finite results.
-- After a successful calculation, digit/decimal/`(` input starts a new expression and operators continue from the previous result.
+## RESOLVED: Isolate persistent history by anonymous browser
 
-## RESOLVED: Removed optional data collection
-- Removed CSV request logging and its related address-handling code.
-- Removed the optional nickname field from the UI and calculation request payloads.
+- Added a server-generated 32-byte anonymous history token stored in a protected browser cookie.
+- Stored only the token's SHA-256 hash in PostgreSQL; no IP address or browser fingerprint is collected.
+- Scoped calculation inserts and history retrieval to the current browser hash.
+- Included browser ownership, its hash constraint, and its scoped index directly in the clean Release 2 database initialization.
+- Added automated cookie, isolation, migration, SQL-safety, and readiness tests.

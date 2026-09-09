@@ -1,193 +1,142 @@
-# CougarCalc Documentation
+# CougarCalc
 
-This document explains how the CougarCalc app works in a beginner-friendly way.
+CougarCalc is a Node.js and Express calculator with browser-specific calculation history stored in an external PostgreSQL service. Successful calculations remain available after application and browser restarts while the browser retains its anonymous history cookie.
 
-## What this app does
-
-CougarCalc is a simple web calculator built with:
-- HTML, CSS, and JavaScript for the user interface
-- Node.js and Express for the server
-- a small test suite to check that calculations work correctly
-
-## Architecture overview
-
-The app is made of a few connected layers:
-
-1. Frontend
-   - The calculator interface appears in the browser.
-   - HTML defines the page structure.
-   - CSS makes it look like a calculator.
-   - JavaScript handles button clicks, keyboard input, and display updates.
-
-2. Backend
-   - Express is the web server running on Node.js.
-   - It listens for requests from the browser.
-   - It receives the expression the user entered and returns the result.
-
-3. Data flow
-   - The browser collects the user input.
-   - The browser sends that input to the server.
-   - The server evaluates the calculation.
-   - The server sends the result back to the browser.
-   - The browser shows the answer and updates history.
-
-### Architecture diagram
+## Architecture
 
 ```mermaid
 flowchart LR
-    A[User] --> B[Browser]
-    B --> C[Frontend JavaScript<br/>index.html + calculator-logic.js]
-    C --> D[Express Server<br/>app.js]
-    D --> C
-    C --> B
+    B[Browser and HttpOnly cookie] -->|HTTP and JSON| A[Express application]
+    A -->|Parameterized SQL and token hash| P[(PostgreSQL service)]
+    P --> A
+    A --> B
 ```
 
-## How a calculation works
+The application runs directly on the host. PostgreSQL runs separately as its own service. Release 2 does not require Docker, a reverse proxy, cloud services, authentication, or an ORM.
 
-Here is the basic flow for a calculation:
+## Requirements
 
-1. The user clicks a button or types a key.
-2. The browser updates the displayed expression.
-3. The browser sends the expression to the server.
-4. The server evaluates it.
-5. The server sends the result back.
-6. The browser displays the result and adds it to history.
+- A supported Node.js release with `process.loadEnvFile()` support
+- PostgreSQL 17
+- The five required database environment variables
 
-### Sequence diagram
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant B as Browser
-    participant S as Express Server
-
-    U->>B: Click button or type key
-    B->>B: Build expression string
-    B->>S: POST /calculate
-    S->>S: Evaluate expression
-    S-->>B: Return result
-    B->>B: Update display and history
-    B-->>U: Show answer
+```text
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=cougarcalc
+DATABASE_USER=cougarcalc_app
+DATABASE_PASSWORD=your_password
 ```
 
-### More detailed request-flow diagram
+`HOST`, `PORT`, `NODE_ENV`, and `HISTORY_COOKIE_SECURE` are optional application settings. Use `HISTORY_COOKIE_SECURE=false` for the current HTTP release and `true` only after HTTPS is deployed. Never commit a populated `.env` file or real credentials.
 
-A common way to show this kind of app more clearly is a sequence diagram that breaks the server work into smaller steps. The server validates and evaluates the expression directly in the `/calculate` route:
+## First-time setup
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant B as Browser
-    participant E as Express Server
+Install dependencies:
 
-    U->>B: Press button or type key
-    B->>E: POST /calculate with expression
-    E->>E: Read request body
-    E->>E: Validate expression characters and syntax
-    E->>E: Compute and normalize result
-    E-->>B: Send JSON response
-    B->>B: Update display and history
-    B-->>U: Show final answer
+```powershell
+npm ci
 ```
 
-## Main files in the project
+On Ubuntu, start PostgreSQL and configure it to start after reboot:
 
-- app.js
-  - Starts the Express server
-  - Defines the /calculate route
-  - Serves the web page and static assets
+```bash
+sudo systemctl enable --now postgresql
+sudo systemctl status --no-pager postgresql
+```
 
-- public/index.html
-  - Contains the calculator interface
-  - Handles button clicks and keyboard input
-  - Displays results and history
+Create the target PostgreSQL database and roles, then run the Release 2 schema initialization as `cougarcalc_owner`:
 
-- public/calculator-logic.js
-  - Builds expression strings from calculator input
-  - Formats numeric results for display
+```sql
+\set ON_ERROR_STOP on
+SET ROLE cougarcalc_owner;
+\i database/migrations/001-create-calculation-history.sql
+```
 
-- package.json
-  - Lists dependencies and scripts such as npm start and npm test
+See [initial_db_setup.md](user-helps/initial_db_setup.md) for complete role, permission, Windows, macOS, and Ubuntu instructions.
 
-- test/app.test.js
-  - Tests HTTP calculations, errors, pages, and environment responses
+Copy `.env.example` to `.env`, replace every placeholder, and start the application:
 
-- test/calculator-logic.test.js
-  - Tests browser-side expression building and result formatting
+```powershell
+Copy-Item .env.example .env
+npm start
+```
 
-## How the frontend works
+Open <http://localhost:3000>.
 
-The frontend is the part the user sees.
+See [RunningTheApp.md](RunningTheApp.md) for routine setup, testing, and troubleshooting.
 
-It is responsible for:
-- showing the calculator UI
-- collecting button and keyboard input
-- building the expression string
-- sending the expression to the server
-- showing the answer and recent history
+Startup checks connectivity, the required column definitions, validated browser-hash constraint, identity and primary-key configuration, browser-scoped history index, and app role's required privileges. If PostgreSQL is reachable but not ready, CougarCalc exits with a safe message naming the initialization file and application permissions.
 
-## How the backend works
+## Anonymous browser history
 
-The backend is the server-side part of the app.
+The server generates a 32-byte random token and stores it in the `cougarcalc_history` cookie for 365 days. The cookie is `HttpOnly`, `SameSite=Lax`, and scoped to `/`. PostgreSQL receives only the token's SHA-256 hash.
 
-It is responsible for:
-- receiving the expression from the browser
-- evaluating the arithmetic
-- returning the result as JSON
+History belongs to a browser profile, not a verified person:
 
-## Does this app use REST?
+- Chrome and Edge have separate histories.
+- Private browsing has a separate temporary history identity.
+- Clearing the cookie starts a new empty history.
+- History does not follow someone to another browser or device.
 
-Yes, CougarCalc uses HTTP endpoints in a REST-like way.
+## HTTP API
 
-For a beginner, it helps to think of REST as a common style for communication between a browser and a server. The browser sends a request to a URL, the server does some work, and the server sends a response back. That request usually uses an HTTP method such as GET or POST.
+### `POST /calculate`
 
-This app has a few important routes:
+Calculates and saves a successful expression for the current browser:
 
-- GET /
-  - Sends the main calculator page to the browser.
-  - This is what loads public/index.html.
+```json
+{
+  "expression": "2 + 3 * 4"
+}
+```
 
-- POST /calculate
-  - Receives a calculation request from the browser.
-  - The browser sends JSON that includes the expression the user typed.
-  - The server calculates the answer.
-  - The server sends JSON back, such as a result number or an error message.
+Successful response:
 
-- GET /environment
-  - Sends a small JSON response containing the app's current `NODE_ENV` value.
+```json
+{
+  "result": 14
+}
+```
 
-The most important endpoint is POST /calculate. In public/index.html, the frontend uses fetch('/calculate') to send the expression to the backend. In app.js, Express receives that request with app.post('/calculate', ...).
+The Release 1 legacy `{ "a": 7, "b": 3, "operation": "+" }` request shape remains supported. Invalid calculations retain their existing `400` responses and are not saved. If PostgreSQL cannot save an otherwise successful calculation, the endpoint returns `503`.
 
-This is not a large, fully resource-based REST API. For example, it does not have routes like GET /calculations, POST /calculations, or DELETE /calculations/:id. Instead, it is a small web app with simple JSON HTTP endpoints. That is why it is fair to call it REST-like or API-based, especially for learning how frontend and backend code talk to each other.
+### `GET /history`
 
-## How the tests work
+Returns only the current browser's saved calculations, newest first:
 
-The project uses Node.js's built-in test runner. The tests in `test/app.test.js` cover the server routes, valid calculations, invalid input, malformed JSON, and error responses. The tests in `test/calculator-logic.test.js` cover browser-side input and formatting behavior.
+```json
+[
+  {
+    "id": 2,
+    "timestamp": "2026-07-24T18:01:00.000Z",
+    "expression": "2 + 3 * 4",
+    "result": 14
+  }
+]
+```
 
-A typical test flow is:
-1. Start the app in a test mode
-2. Send a request to the calculator endpoint
-3. Check that the response contains the expected result
+### `GET /environment`
 
-Pure frontend helpers are tested directly without starting a browser or server.
+Returns the active `NODE_ENV` value, defaulting to `development`.
 
-## Beginner-friendly glossary
+## Tests
 
-- Browser: the program you use to visit websites
-- Frontend: the visible part of the app
-- Backend: the server-side logic behind the app
-- Express: a framework for building web servers with Node.js
-- API endpoint: a URL that the app uses to send or receive data
-- Request: a message sent from the browser to the server
-- Response: the message sent back from the server to the browser
-- Route: a path such as /calculate that the server handles
+Run:
 
-## Summary
+```powershell
+npm test
+```
 
-CougarCalc is a small but complete example of a web app that uses:
-- a browser-based interface
-- a Node.js server
-- simple arithmetic logic
-- automated tests
+The automated suite injects fake repositories and pools, so it does not require a running PostgreSQL service. It covers browser isolation across an application restart, startup sequencing and cookie configuration, exact schema readiness, and browser calculator input behavior. Before release, also initialize a clean PostgreSQL database with migration `001` and run `node debug-check.js` to verify real connection, scoped persistence, and retrieval.
 
-That makes it a great beginner project for learning how frontend, backend, and testing all connect together.
+## Main files
+
+- `app.js` - application factory, routes, startup, and graceful shutdown
+- `browser-identity.js` - anonymous token, hash, and cookie handling
+- `database.js` - required configuration, PostgreSQL pool, readiness checks, and scoped repository
+- `database/migrations/001-create-calculation-history.sql` - complete Release 2 history table, ownership constraint, and scoped index
+- `public/index.html` - calculator and browser-specific history UI
+- `test/` - calculator, cookie, isolation, migration, configuration, and repository tests
+
+See [ProjectStructureGuide.md](user-helps/ProjectStructureGuide.md) and [db-design.md](user-helps/db-design.md) for more detail.

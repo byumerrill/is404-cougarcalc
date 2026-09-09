@@ -141,6 +141,11 @@
         background: var(--button-hover);
       }
 
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
       .action {
         background: var(--accent);
         color: white;
@@ -187,7 +192,7 @@
       <div class="header">
         <div class="header-text">
           <h1>CougarCalc</h1>
-          <p class="subtitle">A classic calculator for quick arithmetic.</p>
+          <p class="subtitle">A classic calculator for quick math.</p>
           <div id="environmentBadge" class="environment-badge">Checking environment…</div>
           <div class="display">
             <div id="formula" class="formula">0</div>
@@ -251,7 +256,6 @@
       } = window.CalculatorLogic;
 
       let formula = '0';
-      let history = [];
       let historyVisible = true;
       let justEvaluated = false;
       let lastResult = null;
@@ -294,6 +298,35 @@
         historyVisible = !historyVisible;
         historyList.style.display = historyVisible ? 'block' : 'none';
         historyToggle.textContent = historyVisible ? 'Hide History' : 'History';
+      }
+
+      function renderHistory(history) {
+        historyList.replaceChildren();
+
+        if (history.length === 0) {
+          historyList.textContent = 'No calculations yet.';
+          return;
+        }
+
+        history.forEach((calculation) => {
+          const historyItem = document.createElement('div');
+          historyItem.textContent =
+            `${calculation.expression} = ${formatResult(calculation.result)}`;
+          historyList.appendChild(historyItem);
+        });
+      }
+
+      async function loadHistory() {
+        try {
+          const response = await fetch('/history');
+          if (!response.ok) {
+            throw new Error('History request failed.');
+          }
+
+          renderHistory(await response.json());
+        } catch (_error) {
+          historyList.textContent = 'History unavailable.';
+        }
       }
 
       function handleEquals() {
@@ -354,27 +387,35 @@
         });
 
       equalsButton.addEventListener('click', async () => {
-        const response = await fetch('/calculate', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ expression: formula })
-        });
+        equalsButton.disabled = true;
 
-        const data = await response.json();
-        if (!response.ok) {
-          resultNode.textContent = 'Error';
-          return;
+        try {
+          const response = await fetch('/calculate', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ expression: formula })
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            resultNode.textContent = 'Error';
+            return;
+          }
+
+          const displayResult = formatResult(data.result);
+          resultNode.textContent = displayResult;
+          justEvaluated = true;
+          lastResult = displayResult;
+          await loadHistory();
+        } catch (_error) {
+          resultNode.textContent = 'Network Error';
+        } finally {
+          equalsButton.disabled = false;
         }
-
-        const displayResult = formatResult(data.result);
-        history.unshift(`${formula} = ${displayResult}`);
-        history = history.slice(0, 8);
-        historyList.innerHTML = history.map((item) => `<div>${item}</div>`).join('');
-        historyList.style.display = historyVisible ? 'block' : 'none';
-        resultNode.textContent = displayResult;
-        justEvaluated = true;
-        lastResult = displayResult;
       });
+
+      loadHistory();
     </script>
   </body>
 </html>

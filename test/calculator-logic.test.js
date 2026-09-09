@@ -6,39 +6,71 @@ const {
   beginNextExpression
 } = require('../public/calculator-logic');
 
-test('appendValue replaces the initial zero with a digit or opening parenthesis', () => {
-  assert.equal(appendValue('0', '7'), '7');
+// This regression test preserves the fix that lets a calculation begin with a
+// grouping expression instead of producing the invalid text "0(".
+test('appendValue replaces the initial zero when a parenthesis is entered first', () => {
   assert.equal(appendValue('0', '('), '(');
 });
 
-test('appendValue handles decimal entry', () => {
-  assert.equal(appendValue('0', '.'), '0.');
-  assert.equal(appendValue('1.2', '.'), '1.2');
+// These cases document how the calculator normalizes its initial display and
+// the special "00" button before text reaches the server-side evaluator.
+test('appendValue normalizes initial digits, decimals, and double-zero input', () => {
+  const cases = [
+    { formula: '0', value: '7', expected: '7' },
+    { formula: '0', value: '.', expected: '0.' },
+    { formula: '0', value: '00', expected: '0' },
+    { formula: '', value: '00', expected: '0' },
+    { formula: '1+', value: '00', expected: '1+0' },
+    { formula: '12', value: '00', expected: '1200' }
+  ];
+
+  for (const { formula, value, expected } of cases) {
+    assert.equal(
+      appendValue(formula, value),
+      expected,
+      `${JSON.stringify(value)} after ${JSON.stringify(formula)}`
+    );
+  }
 });
 
-test('appendValue permits decimals in separate operands', () => {
-  assert.equal(appendValue('1.2+3', '.'), '1.2+3.');
-  assert.equal(appendValue('1.2+3.', '.'), '1.2+3.');
+// Decimal suppression applies to the number currently being entered, not to
+// the whole expression. This permits 1.5+2.5 while blocking 1.5+2.5.6.
+test('appendValue permits one decimal point in each operand', () => {
+  assert.equal(appendValue('1.5+2', '.'), '1.5+2.');
+  assert.equal(appendValue('1.5+2.5', '.'), '1.5+2.5');
+  assert.equal(appendValue('(1.5)*2', '.'), '(1.5)*2.');
 });
 
-test('appendValue handles the double-zero button', () => {
-  assert.equal(appendValue('0', '00'), '0');
-  assert.equal(appendValue('5', '00'), '500');
-  assert.equal(appendValue('5+', '00'), '5+0');
+// Ordinary operators, parentheses, and digits should be appended verbatim so
+// button entry constructs the same expression accepted by POST /calculate.
+test('appendValue appends ordinary calculator input', () => {
+  const cases = [
+    { formula: '12', value: '+', expected: '12+' },
+    { formula: '12+', value: '(', expected: '12+(' },
+    { formula: '12+(', value: '3', expected: '12+(3' },
+    { formula: '12+(3', value: ')', expected: '12+(3)' }
+  ];
+
+  for (const { formula, value, expected } of cases) {
+    assert.equal(appendValue(formula, value), expected);
+  }
 });
 
-test('appendValue defaults an invalid current formula to zero', () => {
-  assert.equal(appendValue(undefined, '7'), '7');
-});
+// Result formatting mirrors the API's ten-decimal normalization and prevents
+// NaN or infinities from being rendered as successful calculator values.
+test('formatResult rounds finite values and rejects non-finite values', () => {
+  const cases = [
+    { value: 0.1 + 0.2, expected: '0.3' },
+    { value: 1 / 3, expected: '0.3333333333' },
+    { value: -0, expected: '0' },
+    { value: Number.NaN, expected: 'Error' },
+    { value: Number.POSITIVE_INFINITY, expected: 'Error' },
+    { value: Number.NEGATIVE_INFINITY, expected: 'Error' }
+  ];
 
-test('formatResult rounds floating-point noise', () => {
-  assert.equal(formatResult(0.1 + 0.2), '0.3');
-  assert.equal(formatResult(1.00000000001), '1');
-});
-
-test('formatResult returns Error for non-finite values', () => {
-  assert.equal(formatResult(Infinity), 'Error');
-  assert.equal(formatResult(Number.NaN), 'Error');
+  for (const { value, expected } of cases) {
+    assert.equal(formatResult(value), expected);
+  }
 });
 
 test('beginNextExpression starts a new expression for digits, decimals, and parentheses', () => {

@@ -1,7 +1,7 @@
 {
   "name": "cougarcalc",
   "version": "1.0.0",
-  "description": "A simple arithmetic calculator web app",
+  "description": "A calculator web app with persistent PostgreSQL history",
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
@@ -10,12 +10,13 @@
   "keywords": [
     "calculator",
     "express",
-    "node"
+    "node",
+    "postgresql"
   ],
   "author": "OpenAI",
   "license": "MIT",
   "dependencies": {
-    "dotenv": "^17.4.2",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "pg": "^8.22.0"
   }
 }

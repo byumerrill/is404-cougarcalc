@@ -244,11 +244,17 @@
       const keypadButtons = document.querySelectorAll('[data-value]');
       const display = document.querySelector('.display');
       const environmentBadge = document.getElementById('environmentBadge');
-      const { appendValue: appendValueLogic, formatResult } = window.CalculatorLogic;
+      const {
+        appendValue: appendValueLogic,
+        formatResult,
+        beginNextExpression
+      } = window.CalculatorLogic;
 
       let formula = '0';
       let history = [];
       let historyVisible = true;
+      let justEvaluated = false;
+      let lastResult = null;
 
       function updateDisplay() {
         formulaNode.textContent = formula;
@@ -256,12 +262,22 @@
       }
 
       function appendValue(value) {
+        if (justEvaluated) {
+          justEvaluated = false;
+          formula = beginNextExpression(lastResult, value);
+          lastResult = null;
+          updateDisplay();
+          return;
+        }
+
         formula = appendValueLogic(formula, value);
         updateDisplay();
       }
 
       function clearFormula() {
         formula = '0';
+        justEvaluated = false;
+        lastResult = null;
         updateDisplay();
       }
 
@@ -356,6 +372,8 @@
         historyList.innerHTML = history.map((item) => `<div>${item}</div>`).join('');
         historyList.style.display = historyVisible ? 'block' : 'none';
         resultNode.textContent = displayResult;
+        justEvaluated = true;
+        lastResult = displayResult;
       });
     </script>
   </body>

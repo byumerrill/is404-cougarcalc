@@ -22,6 +22,7 @@ The following items have been implemented and are now complete.
 ## RESOLVED: Expanded automated coverage
 - Added server tests for calculation branches, validation errors, malformed JSON, routes, and environment labels.
 - Added frontend-logic tests for zeroes, decimal entry, expression building, rounding, and non-finite results.
+- After a successful calculation, digit/decimal/`(` input starts a new expression and operators continue from the previous result.
 
 ## RESOLVED: Removed optional data collection
 - Removed CSV request logging and its related address-handling code.

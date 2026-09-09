@@ -54,5 +54,17 @@
     return rounded.toString();
   }
 
-  return { appendValue, formatResult };
+  // After a successful evaluation: digits/./( start fresh; operators continue from the result.
+  function beginNextExpression(previousResult, value) {
+    const isOperator = /^[+\-*/]$/.test(value);
+    const resultText = previousResult == null ? '' : String(previousResult);
+
+    if (isOperator && resultText !== '' && resultText !== 'Error') {
+      return resultText + value;
+    }
+
+    return appendValue('0', value);
+  }
+
+  return { appendValue, formatResult, beginNextExpression };
 });

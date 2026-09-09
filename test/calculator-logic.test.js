@@ -1,6 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { appendValue, formatResult } = require('../public/calculator-logic');
+const {
+  appendValue,
+  formatResult,
+  beginNextExpression
+} = require('../public/calculator-logic');
 
 test('appendValue replaces the initial zero with a digit or opening parenthesis', () => {
   assert.equal(appendValue('0', '7'), '7');
@@ -35,4 +39,18 @@ test('formatResult rounds floating-point noise', () => {
 test('formatResult returns Error for non-finite values', () => {
   assert.equal(formatResult(Infinity), 'Error');
   assert.equal(formatResult(Number.NaN), 'Error');
+});
+
+test('beginNextExpression starts a new expression for digits, decimals, and parentheses', () => {
+  assert.equal(beginNextExpression('5', '7'), '7');
+  assert.equal(beginNextExpression('5', '.'), '0.');
+  assert.equal(beginNextExpression('5', '('), '(');
+  assert.equal(beginNextExpression('5', '00'), '0');
+});
+
+test('beginNextExpression continues from the result when an operator is pressed', () => {
+  assert.equal(beginNextExpression('5', '*'), '5*');
+  assert.equal(beginNextExpression('14', '+'), '14+');
+  assert.equal(beginNextExpression('3.5', '-'), '3.5-');
+  assert.equal(beginNextExpression('8', '/'), '8/');
 });

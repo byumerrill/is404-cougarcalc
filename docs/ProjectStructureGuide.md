@@ -69,6 +69,7 @@ Calculation history exists only in the current browser page and is limited to ei
 This browser-compatible module exports:
 
 - `appendValue(currentFormula, value)`, which builds the displayed expression and handles initial zeroes, double zeroes, and decimal input;
+- `beginNextExpression(previousResult, value)`, which starts a new expression after a successful calculation for digits, decimals, and `(`, or continues from the previous result when an operator is pressed;
 - `formatResult(value)`, which rounds floating-point noise and converts non-finite values to `Error`.
 
 The module can also be loaded by Node.js so these functions can be tested directly.

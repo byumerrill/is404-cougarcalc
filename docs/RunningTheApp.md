@@ -58,6 +58,7 @@ Firewall and network settings may prevent access from other devices. Listening o
 2. Press the `=` button or the Enter key.
 3. The answer appears in the result display.
 4. Successful calculations appear in the page's recent history.
+5. After a successful result, typing a number, decimal point, or `(` starts a new expression. Pressing an operator continues from the previous result.
 
 The C button clears the expression. Backspace removes the last character. Escape or Delete also clears the expression when the calculator display has keyboard focus.
 

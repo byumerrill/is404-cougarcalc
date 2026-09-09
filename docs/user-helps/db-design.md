@@ -1,4 +1,4 @@
-# Release 2 database design
+# Release 03 database design
 
 CougarCalc uses one PostgreSQL table:
 
@@ -65,9 +65,9 @@ The file uses `IF NOT EXISTS` guards where PostgreSQL supports them. Those guard
 
 See [initial_db_setup.md](initial_db_setup.md) for complete role, permission, platform, and verification instructions.
 
-## Startup readiness check
+## Runtime readiness check
 
-Before listening for HTTP requests, `database.js` verifies:
+When configured, startup performs an initial readiness check but Express still listens if PostgreSQL is unavailable. `GET /health/ready` repeats the verification at runtime and reports only `ready` or `not ready`. The check verifies:
 
 - all five expected column names, types, and nullability;
 - the exact validated lowercase SHA-256 format constraint on `browser_token_hash`;
@@ -76,4 +76,14 @@ Before listening for HTTP requests, `database.js` verifies:
 - the valid, ready, live browser-scoped B-tree index and its exact key order/direction; and
 - schema `USAGE`, table `SELECT` and `INSERT`, and sequence `USAGE` for the connected role.
 
-These are minimum privileges. Startup accepts a role with additional privileges, although the recommended app role remains least-privileged. A mismatch prevents startup with a safe database-readiness message.
+These are minimum privileges. Readiness accepts a role with additional privileges, although the recommended app role remains least-privileged. A mismatch returns readiness `503` and leaves calculator evaluation available in degraded mode. Startup never runs DDL.
+
+The pool uses a 35-second connection timeout so Aurora Serverless v2 can resume after a long pause and a 10-second query timeout. A readiness HTTP request has an independent 10-second overall ceiling and concurrent requests share the same active database check. If the HTTP ceiling wins, the connection attempt may continue; a later request can observe success without restarting Node.js. A configured repository is retained after an outage so later requests and operations can recover when PostgreSQL becomes usable again.
+
+The public readiness body remains only `ready` or `not ready`. Internally, the shared diagnostics path records the current stage as `connection`, `schema_columns`, `schema_constraint`, `schema_primary_key`, `schema_index`, or `runtime_privileges`. Stable Node.js and PostgreSQL codes are classified into safe categories such as `connection_timeout`, `authentication_failed`, `schema_missing_or_invalid`, and `insufficient_privilege`.
+
+Identical readiness and operation failures are logged once until their category changes or the operation recovers. Recovery is a state transition (`readiness_recovered` or `operation_recovered`), not a success line on every health poll. Diagnostic logs can include the short instance marker but never include database hostnames, credentials, connection strings, calculation expressions, cookies, browser tokens/hashes, request bodies, raw errors, or the complete environment.
+
+Local development explicitly uses `DATABASE_TLS_MODE=disable`. Amazon RDS uses `DATABASE_TLS_MODE=verify-full` with its DNS endpoint and the public CA bundle at `database/certs/global-bundle.pem`. Node verifies the certificate chain and hostname; verification bypass is not an AWS deployment option.
+
+`DATABASE_PASSWORD` must resolve to one scalar password. A parseable JSON object is rejected before pool creation so a complete Secrets Manager credential object cannot accidentally be sent to PostgreSQL. In Elastic Beanstalk, select the JSON secret's top-level `password` field instead.

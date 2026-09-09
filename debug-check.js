@@ -9,6 +9,8 @@ async function runDebugCheck() {
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
   try {
+    const readinessResponse = await fetch(`${baseUrl}/health/ready`);
+    const readiness = await readinessResponse.json();
     const calculationResponse = await fetch(`${baseUrl}/calculate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -25,25 +27,37 @@ async function runDebugCheck() {
       headers: { cookie: historyCookie }
     });
     const history = await historyResponse.json();
+    const instanceResponse = await fetch(`${baseUrl}/diagnostics/instance`);
+    const instance = await instanceResponse.json();
 
     console.log(
       JSON.stringify(
         {
+          readiness: {
+            status: readinessResponse.status,
+            ready: readiness.status === 'ready'
+          },
           calculation: {
             status: calculationResponse.status,
-            body: calculation
+            saved: calculation.saved !== false
           },
           history: {
             status: historyResponse.status,
-            newest: Array.isArray(history) ? history[0] : history
-          }
+            entry_count: Array.isArray(history) ? history.length : 0
+          },
+          instance: instance.instance
         },
         null,
         2
       )
     );
 
-    if (!calculationResponse.ok || !historyResponse.ok) {
+    if (
+      !readinessResponse.ok ||
+      !calculationResponse.ok ||
+      !historyResponse.ok ||
+      !instanceResponse.ok
+    ) {
       process.exitCode = 1;
     }
   } finally {
@@ -53,6 +67,6 @@ async function runDebugCheck() {
 }
 
 runDebugCheck().catch((error) => {
-  console.error(`Debug check failed: ${error.message}`);
+  console.error('Debug check failed. Review the safe database diagnostics above.');
   process.exitCode = 1;
 });

@@ -1,17 +1,32 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  CONNECTION_TIMEOUT_MILLIS,
+  QUERY_TIMEOUT_MILLIS,
+  READINESS_TIMEOUT_MILLIS,
+  createPoolFromEnv,
   createPostgresRepository,
+  createUnavailableRepository,
+  getMissingDatabaseVariables,
   readDatabaseConfig
 } = require('../database');
+const { createDatabaseDiagnostics } = require('../database-diagnostics');
 
 const VALID_ENV = {
   DATABASE_HOST: 'db.example.test',
   DATABASE_PORT: '5432',
   DATABASE_NAME: 'cougarcalc',
   DATABASE_USER: 'cougarcalc_app',
-  DATABASE_PASSWORD: 'do-not-print-this-secret'
+  DATABASE_PASSWORD: 'do-not-print-this-secret',
+  DATABASE_TLS_MODE: 'disable'
 };
+const REQUIRED_DATABASE_NAMES = [
+  'DATABASE_HOST',
+  'DATABASE_PORT',
+  'DATABASE_NAME',
+  'DATABASE_USER',
+  'DATABASE_PASSWORD'
+];
 const VALID_BROWSER_TOKEN_HASH = 'a'.repeat(64);
 
 const VALID_SCHEMA_RESULTS = {
@@ -119,12 +134,15 @@ test('database configuration reads the five required environment variables', () 
     port: 5432,
     database: 'cougarcalc',
     user: 'cougarcalc_app',
-    password: 'do-not-print-this-secret'
+    password: 'do-not-print-this-secret',
+    ssl: false,
+    connectionTimeoutMillis: CONNECTION_TIMEOUT_MILLIS,
+    query_timeout: QUERY_TIMEOUT_MILLIS
   });
 });
 
 test('database configuration rejects each missing or blank required variable', () => {
-  for (const name of Object.keys(VALID_ENV)) {
+  for (const name of REQUIRED_DATABASE_NAMES) {
     const missingEnv = { ...VALID_ENV };
     delete missingEnv[name];
 
@@ -140,6 +158,17 @@ test('database configuration rejects each missing or blank required variable', (
   }
 });
 
+test('database configuration reports all missing database variable names without values', () => {
+  assert.deepEqual(getMissingDatabaseVariables({}), REQUIRED_DATABASE_NAMES);
+  assert.deepEqual(
+    getMissingDatabaseVariables({
+      DATABASE_HOST: 'db.internal.test',
+      DATABASE_PASSWORD: 'do-not-print-this-secret'
+    }),
+    ['DATABASE_PORT', 'DATABASE_NAME', 'DATABASE_USER']
+  );
+});
+
 test('database configuration rejects invalid ports', () => {
   for (const port of ['not-a-port', '0', '65536', '5432.5']) {
     assert.throws(
@@ -147,6 +176,196 @@ test('database configuration rejects invalid ports', () => {
       /DATABASE_PORT must be an integer between 1 and 65535/
     );
   }
+});
+
+test('database configuration rejects a JSON object password without exposing it', () => {
+  const structuredSecret = JSON.stringify({
+    username: 'cougarcalc_app',
+    password: 'DO_NOT_LOG_INNER_SECRET_67890'
+  });
+
+  assert.throws(
+    () =>
+      readDatabaseConfig({
+        ...VALID_ENV,
+        DATABASE_PASSWORD: structuredSecret
+      }),
+    (error) =>
+      error.code === 'COUGARCALC_DATABASE_PASSWORD_STRUCTURED' &&
+      !error.message.includes(structuredSecret) &&
+      !error.message.includes('DO_NOT_LOG_INNER_SECRET_67890')
+  );
+
+  assert.equal(
+    readDatabaseConfig({
+      ...VALID_ENV,
+      DATABASE_PASSWORD: '{a-valid-scalar-password'
+    }).password,
+    '{a-valid-scalar-password'
+  );
+});
+
+test('local database mode disables TLS and applies approved timeouts', () => {
+  let poolConfig;
+  const logEntries = [];
+  const diagnostics = createDatabaseDiagnostics({
+    logger: {
+      log: (message) => logEntries.push(message),
+      warn: (message) => logEntries.push(message),
+      error: (message) => logEntries.push(message)
+    }
+  });
+  class FakePool {
+    constructor(config) {
+      poolConfig = config;
+    }
+
+    on() {}
+  }
+
+  createPoolFromEnv(VALID_ENV, { PoolClass: FakePool, diagnostics });
+
+  assert.equal(poolConfig.ssl, false);
+  assert.equal(poolConfig.connectionTimeoutMillis, 35_000);
+  assert.equal(poolConfig.query_timeout, 10_000);
+  assert.equal(READINESS_TIMEOUT_MILLIS, 10_000);
+  assert.deepEqual(logEntries, [
+    '[database] configuration_valid tls=disable host_type=dns ca_configured=false port=5432'
+  ]);
+});
+
+test('idle pool errors use the centralized safe diagnostic path', () => {
+  const sentinel = 'DO_NOT_LOG_THIS_DATABASE_PASSWORD_12345';
+  const logEntries = [];
+  let idleErrorHandler;
+  class FakePool {
+    constructor() {}
+
+    on(event, handler) {
+      assert.equal(event, 'error');
+      idleErrorHandler = handler;
+    }
+  }
+  const diagnostics = createDatabaseDiagnostics({
+    logger: {
+      log: (message) => logEntries.push(message),
+      warn: (message) => logEntries.push(message),
+      error: (message) => logEntries.push(message)
+    }
+  });
+
+  createPoolFromEnv(VALID_ENV, { PoolClass: FakePool, diagnostics });
+  const error = new Error(`password=${sentinel}`);
+  error.code = '08006';
+  idleErrorHandler(error);
+
+  assert.match(
+    logEntries[1],
+    /idle_connection_failed category=connection_failure code=08006 retryable=true/
+  );
+  assert.equal(JSON.stringify(logEntries).includes(sentinel), false);
+});
+
+test('verified TLS loads the CA and requires certificate verification', () => {
+  const ca =
+    '-----BEGIN CERTIFICATE-----\npublic-test-ca\n-----END CERTIFICATE-----\n';
+  const requestedFiles = [];
+  const config = readDatabaseConfig(
+    {
+      ...VALID_ENV,
+      DATABASE_TLS_MODE: 'verify-full',
+      DATABASE_CA_PATH: 'database/certs/global-bundle.pem'
+    },
+    {
+      readFile(filePath, encoding) {
+        requestedFiles.push({ filePath, encoding });
+        return ca;
+      }
+    }
+  );
+
+  assert.deepEqual(requestedFiles, [
+    { filePath: 'database/certs/global-bundle.pem', encoding: 'utf8' }
+  ]);
+  assert.deepEqual(config.ssl, { ca, rejectUnauthorized: true });
+  assert.equal(JSON.stringify(config).includes('public-test-ca'), true);
+});
+
+test('invalid TLS configuration fails safely and never bypasses verification', () => {
+  assert.throws(
+    () => readDatabaseConfig({ ...VALID_ENV, DATABASE_TLS_MODE: 'prefer' }),
+    /DATABASE_TLS_MODE must be either disable or verify-full/
+  );
+  assert.throws(
+    () =>
+      readDatabaseConfig({
+        ...VALID_ENV,
+        DATABASE_TLS_MODE: 'verify-full'
+      }),
+    /DATABASE_CA_PATH is required/
+  );
+  assert.throws(
+    () =>
+      readDatabaseConfig(
+        {
+          ...VALID_ENV,
+          DATABASE_TLS_MODE: 'verify-full',
+          DATABASE_CA_PATH: 'secret/internal/path.pem'
+        },
+        { readFile: () => { throw new Error('secret/internal/path.pem'); } }
+      ),
+    (error) =>
+      error.message === 'DATABASE_CA_PATH could not be read.' &&
+      !error.message.includes('secret/internal/path.pem')
+  );
+  assert.throws(
+    () =>
+      readDatabaseConfig(
+        {
+          ...VALID_ENV,
+          DATABASE_TLS_MODE: 'verify-full',
+          DATABASE_CA_PATH: 'not-a-certificate.pem'
+        },
+        { readFile: () => 'not a certificate' }
+      ),
+    /must contain PEM certificates/
+  );
+  assert.throws(
+    () =>
+      readDatabaseConfig(
+        {
+          ...VALID_ENV,
+          DATABASE_HOST: '10.0.1.42',
+          DATABASE_TLS_MODE: 'verify-full',
+          DATABASE_CA_PATH: 'database/certs/global-bundle.pem'
+        },
+        {
+          readFile: () =>
+            '-----BEGIN CERTIFICATE-----\npublic-ca\n-----END CERTIFICATE-----\n'
+        }
+      ),
+    /DATABASE_HOST must be a DNS hostname/
+  );
+  assert.throws(
+    () =>
+      readDatabaseConfig({
+        ...VALID_ENV,
+        DATABASE_CA_PATH: 'unexpected.pem'
+      }),
+    /must be omitted/
+  );
+});
+
+test('the unavailable repository has the same safe readiness and history interface', async () => {
+  const repository = createUnavailableRepository();
+
+  assert.equal(await repository.checkReadiness(), false);
+  await assert.rejects(() => repository.getHistory('a'.repeat(64)), /unavailable/);
+  await assert.rejects(
+    () => repository.saveCalculation({}),
+    /unavailable/
+  );
+  await repository.close();
 });
 
 test('repository verifies database connectivity', async () => {
@@ -166,6 +385,122 @@ test('repository verifies database connectivity', async () => {
       text: 'SELECT 1'
     }
   ]);
+});
+
+test('repository readiness combines connection, schema, and permission checks safely', async () => {
+  const readyRepository = createPostgresRepository(createSchemaPool());
+  assert.equal(await readyRepository.checkReadiness(), true);
+
+  const connectionFailure = createPostgresRepository({
+    async query() {
+      throw new Error('password=do-not-print-this-secret');
+    }
+  });
+  assert.equal(await connectionFailure.checkReadiness(), false);
+
+  const schemaFailure = createPostgresRepository(
+    createSchemaPool({ 'cougarcalc-verify-columns': [] })
+  );
+  assert.equal(await schemaFailure.checkReadiness(), false);
+});
+
+test('repository diagnostics identify every readiness stage safely', async () => {
+  const scenarios = [
+    {
+      stage: 'connection',
+      pool: {
+        async query() {
+          const error = new Error('secret connection detail');
+          error.code = '28P01';
+          throw error;
+        }
+      },
+      category: 'authentication_failed'
+    },
+    {
+      stage: 'schema_columns',
+      pool: createSchemaPool({ 'cougarcalc-verify-columns': [] }),
+      category: 'schema_missing_or_invalid'
+    },
+    {
+      stage: 'schema_constraint',
+      pool: createSchemaPool({
+        'cougarcalc-verify-browser-hash-constraint': []
+      }),
+      category: 'schema_missing_or_invalid'
+    },
+    {
+      stage: 'schema_primary_key',
+      pool: createSchemaPool({ 'cougarcalc-verify-primary-key': [] }),
+      category: 'schema_missing_or_invalid'
+    },
+    {
+      stage: 'schema_index',
+      pool: createSchemaPool({
+        'cougarcalc-verify-browser-history-index': []
+      }),
+      category: 'schema_missing_or_invalid'
+    },
+    {
+      stage: 'runtime_privileges',
+      pool: createSchemaPool({
+        'cougarcalc-verify-runtime-privileges': [
+          {
+            ...VALID_SCHEMA_RESULTS['cougarcalc-verify-runtime-privileges'][0],
+            has_table_insert: false
+          }
+        ]
+      }),
+      category: 'insufficient_privilege'
+    }
+  ];
+
+  for (const scenario of scenarios) {
+    const logEntries = [];
+    const diagnostics = createDatabaseDiagnostics({
+      logger: {
+        log: (message) => logEntries.push(message),
+        warn: (message) => logEntries.push(message),
+        error: (message) => logEntries.push(message)
+      }
+    });
+    const repository = createPostgresRepository(scenario.pool, { diagnostics });
+
+    assert.equal(await repository.checkReadiness(), false);
+    assert.equal(logEntries.length, 1);
+    assert.match(logEntries[0], new RegExp(`stage=${scenario.stage}`));
+    assert.match(logEntries[0], new RegExp(`category=${scenario.category}`));
+    assert.equal(logEntries[0].includes('secret connection detail'), false);
+  }
+});
+
+test('repository readiness has an overall timeout and deduplicates concurrent checks', async () => {
+  let queryCount = 0;
+  let releaseQuery;
+  const pendingQuery = new Promise((resolve) => {
+    releaseQuery = resolve;
+  });
+  const repository = createPostgresRepository(
+    {
+      async query() {
+        queryCount += 1;
+        return pendingQuery;
+      }
+    },
+    { readinessTimeoutMillis: 20 }
+  );
+
+  const startedAt = Date.now();
+  const results = await Promise.all([
+    repository.checkReadiness(),
+    repository.checkReadiness()
+  ]);
+  const elapsed = Date.now() - startedAt;
+
+  assert.deepEqual(results, [false, false]);
+  assert.equal(queryCount, 1);
+  assert.ok(elapsed < 250, `readiness took ${elapsed}ms`);
+  releaseQuery({ rows: [] });
 });
 
 test('repository verifies the exact schema and required runtime privileges', async () => {

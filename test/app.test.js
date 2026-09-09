@@ -1,6 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createApp, startServer } = require('../app');
+const { UNSAVED_WARNING, createApp, startServer } = require('../app');
+const {
+  createUnavailableRepository,
+  readDatabaseConfig
+} = require('../database');
+const { createDatabaseDiagnostics } = require('../database-diagnostics');
 const {
   HISTORY_COOKIE_MAX_AGE_SECONDS,
   HISTORY_COOKIE_NAME,
@@ -22,6 +27,10 @@ function createFakeRepository(overrides = {}) {
 
   return {
     calculations,
+
+    async checkReadiness() {
+      return true;
+    },
 
     async saveCalculation(calculation) {
       calculations.unshift({
@@ -407,7 +416,7 @@ test('malformed JSON is rejected and not saved', async () => {
   });
 });
 
-test('a persistence failure does not return an unrecorded result', async () => {
+test('a persistence failure returns the result with an explicit unsaved warning', async () => {
   const databaseErrors = [];
   let rejectedHash;
   const repository = createFakeRepository({
@@ -428,17 +437,100 @@ test('a persistence failure does not return an unrecorded result', async () => {
       });
       const token = browser.cookie.split('=', 2)[1];
 
-      assert.equal(response.status, 503);
+      assert.equal(response.status, 200);
       assert.deepEqual(body, {
-        error: 'The calculation could not be saved.'
+        result: 2,
+        saved: false,
+        warning: UNSAVED_WARNING
       });
       assert.equal(JSON.stringify(body).includes(token), false);
       assert.equal(JSON.stringify(body).includes(rejectedHash), false);
       assert.equal(JSON.stringify(databaseErrors).includes(token), false);
       assert.equal(JSON.stringify(databaseErrors).includes(rejectedHash), false);
-      assert.deepEqual(databaseErrors, ['save calculation']);
+      assert.deepEqual(databaseErrors, ['save_calculation']);
     },
     { onDatabaseError: (context) => databaseErrors.push(context) }
+  );
+});
+
+test('health endpoints are small, database-aware, and never set history cookies', async () => {
+  const repository = createFakeRepository();
+
+  await withServer(repository, async (baseUrl) => {
+    const liveResponse = await fetch(`${baseUrl}/health/live`);
+    const readyResponse = await fetch(`${baseUrl}/health/ready`);
+
+    assert.equal(liveResponse.status, 200);
+    assert.deepEqual(await liveResponse.json(), { status: 'live' });
+    assert.equal(readyResponse.status, 200);
+    assert.deepEqual(await readyResponse.json(), { status: 'ready' });
+    assert.equal(liveResponse.headers.get('set-cookie'), null);
+    assert.equal(readyResponse.headers.get('set-cookie'), null);
+  });
+
+  await withServer(createUnavailableRepository(), async (baseUrl) => {
+    const liveResponse = await fetch(`${baseUrl}/health/live`);
+    const readyResponse = await fetch(`${baseUrl}/health/ready`);
+
+    assert.equal(liveResponse.status, 200);
+    assert.equal(readyResponse.status, 503);
+    assert.deepEqual(await readyResponse.json(), { status: 'not ready' });
+    assert.equal(readyResponse.headers.get('set-cookie'), null);
+  });
+});
+
+test('readiness safely returns 503 for connection, schema, and permission failures', async () => {
+  const failureDetails = [
+    'connection refused at private-db.internal',
+    'relation calculation_history does not exist',
+    'permission denied for secret application role'
+  ];
+
+  for (const detail of failureDetails) {
+    const databaseErrors = [];
+    const repository = createFakeRepository({
+      async checkReadiness() {
+        throw new Error(detail);
+      }
+    });
+
+    await withServer(
+      repository,
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/health/ready`);
+        const body = await response.json();
+
+        assert.equal(response.status, 503);
+        assert.deepEqual(body, { status: 'not ready' });
+        assert.equal(JSON.stringify(body).includes(detail), false);
+        assert.equal(response.headers.get('set-cookie'), null);
+        assert.deepEqual(databaseErrors, ['readiness_check']);
+      },
+      { onDatabaseError: (context) => databaseErrors.push(context) }
+    );
+  }
+});
+
+test('instance diagnostics expose only a deterministic short marker', async () => {
+  await withServer(
+    createFakeRepository(),
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/diagnostics/instance`);
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.match(body.instance, /^[0-9a-f]{12}$/);
+      assert.equal(response.headers.get('x-cougarcalc-instance'), body.instance);
+      assert.equal(JSON.stringify(body).includes('test-private-hostname'), false);
+      assert.equal(response.headers.get('set-cookie'), null);
+
+      const pageResponse = await fetch(`${baseUrl}/environment`);
+      assert.equal(
+        pageResponse.headers.get('x-cougarcalc-instance'),
+        body.instance
+      );
+    },
+    { hostnameSource: () => 'test-private-hostname' }
   );
 });
 
@@ -512,7 +604,7 @@ test('GET /history returns a safe service error when the database fails', async 
         error: 'Calculation history is temporarily unavailable.'
       });
       assert.equal(JSON.stringify(body).includes('secret'), false);
-      assert.deepEqual(databaseErrors, ['retrieve history']);
+      assert.deepEqual(databaseErrors, ['retrieve_history']);
     },
     { onDatabaseError: (context) => databaseErrors.push(context) }
   );
@@ -529,7 +621,11 @@ test('existing page, environment, static security, and 404 behavior is preserved
       const missingResponse = await fetch(`${baseUrl}/does-not-exist`);
 
       assert.equal(pageResponse.status, 200);
-      assert.match(await pageResponse.text(), /CougarCalc/);
+      const page = await pageResponse.text();
+      assert.match(page, /CougarCalc/);
+      assert.match(page, /id="persistenceStatus"/);
+      assert.match(page, /role="status"/);
+      assert.match(page, /aria-live="polite"/);
       assert.deepEqual(await environmentResponse.json(), {
         environment: 'staging'
       });
@@ -541,63 +637,286 @@ test('existing page, environment, static security, and 404 behavior is preserved
   );
 });
 
-test('startup reports connection failures safely and closes the pool', async () => {
-  let closed = false;
-  const repository = {
-    async verifyConnection() {
-      throw new Error('password authentication failed for secret-password');
+test('startup with no database configuration serves degraded calculator and health', async () => {
+  const logEntries = [];
+  const logger = {
+    log(message) {
+      logEntries.push(message);
     },
-    async close() {
-      closed = true;
+    warn(message) {
+      logEntries.push(message);
+    },
+    error(message) {
+      logEntries.push(message);
     }
   };
-
-  await assert.rejects(
-    () =>
-      startServer(
-        {},
-        {
-          createPool: () => ({}),
-          createRepository: () => repository
-        }
-      ),
-    (error) =>
-      error.message ===
-        'Unable to connect to PostgreSQL using the configured settings.' &&
-      !error.message.includes('secret-password')
+  const started = await startServer(
+    {
+      HOST: '127.0.0.1',
+      PORT: '0',
+      NODE_ENV: 'test',
+      HISTORY_COOKIE_SECURE: 'false'
+    },
+    { logger, hostnameSource: () => 'degraded-test-host' }
   );
-  assert.equal(closed, true);
+
+  try {
+    const baseUrl = `http://127.0.0.1:${started.server.address().port}`;
+    const liveResponse = await fetch(`${baseUrl}/health/live`);
+    const readyResponse = await fetch(`${baseUrl}/health/ready`);
+    const calculation = await postCalculation(baseUrl, {
+      expression: '2 + 3 * 4'
+    });
+
+    assert.equal(liveResponse.status, 200);
+    assert.equal(readyResponse.status, 503);
+    assert.equal(calculation.response.status, 200);
+    assert.deepEqual(calculation.body, {
+      result: 14,
+      saved: false,
+      warning: UNSAVED_WARNING
+    });
+    assert.match(logEntries[0], /DATABASE_HOST/);
+    assert.match(logEntries[0], /DATABASE_PASSWORD/);
+  } finally {
+    await new Promise((resolve, reject) => {
+      started.server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await started.repository.close();
+  }
 });
 
-test('startup distinguishes database readiness failures and closes the pool', async () => {
-  let closed = false;
-  const repository = {
-    async verifyConnection() {},
-    async verifySchema() {
-      throw new Error('relation calculation_history does not exist: secret detail');
+test('partial and invalid database configuration starts safely without leaking values', async () => {
+  const secret = 'password-that-must-never-appear';
+  const endpoint = 'private-db.internal.example';
+  const scenarios = [
+    {
+      env: { DATABASE_HOST: endpoint, DATABASE_PASSWORD: secret },
+      expectedLog: /DATABASE_PORT,DATABASE_NAME,DATABASE_USER/
     },
-    async close() {
-      closed = true;
+    {
+      env: {
+        DATABASE_HOST: endpoint,
+        DATABASE_PORT: 'invalid-secret-port',
+        DATABASE_NAME: 'cougarcalc',
+        DATABASE_USER: 'cougarcalc_app',
+        DATABASE_PASSWORD: secret
+      },
+      expectedLog: /configuration_invalid category=configuration_invalid/
     }
+  ];
+
+  for (const scenario of scenarios) {
+    const logEntries = [];
+    const logger = {
+      log: (message) => logEntries.push(message),
+      warn: (message) => logEntries.push(message),
+      error: (message) => logEntries.push(message)
+    };
+    const started = await startServer(
+      {
+        ...scenario.env,
+        HOST: '127.0.0.1',
+        PORT: '0',
+        HISTORY_COOKIE_SECURE: 'false'
+      },
+      { logger, hostnameSource: () => 'safe-log-test-host' }
+    );
+
+    try {
+      const baseUrl = `http://127.0.0.1:${started.server.address().port}`;
+      const response = await fetch(`${baseUrl}/health/ready`);
+      assert.equal(response.status, 503);
+      assert.match(logEntries[0], scenario.expectedLog);
+      assert.equal(JSON.stringify(logEntries).includes(secret), false);
+      assert.equal(JSON.stringify(logEntries).includes(endpoint), false);
+      assert.equal(JSON.stringify(await response.json()).includes(secret), false);
+    } finally {
+      await new Promise((resolve, reject) => {
+        started.server.close((error) => (error ? reject(error) : resolve()));
+      });
+      await started.repository.close();
+    }
+  }
+});
+
+test('structured Secrets Manager password starts degraded with only a safe category', async () => {
+  const innerSecret = 'DO_NOT_LOG_INNER_SECRET_67890';
+  const structuredSecret = JSON.stringify({
+    username: 'cougarcalc_app',
+    password: innerSecret
+  });
+  const logEntries = [];
+  let repositoryCreated = false;
+  const logger = {
+    log: (message) => logEntries.push(message),
+    warn: (message) => logEntries.push(message),
+    error: (message) => logEntries.push(message)
+  };
+  const env = {
+    HOST: '127.0.0.1',
+    PORT: '0',
+    HISTORY_COOKIE_SECURE: 'false',
+    DATABASE_HOST: 'db.internal.test',
+    DATABASE_PORT: '5432',
+    DATABASE_NAME: 'cougarcalc',
+    DATABASE_USER: 'cougarcalc_app',
+    DATABASE_PASSWORD: structuredSecret,
+    DATABASE_TLS_MODE: 'disable'
   };
 
-  await assert.rejects(
-    () =>
-      startServer(
-        {},
-        {
-          createPool: () => ({}),
-          createRepository: () => repository
-        }
-      ),
-    (error) =>
-      error.message ===
-        'PostgreSQL is connected but not ready. Verify ' +
-          'database/migrations/001-create-calculation-history.sql and ' +
-          'the application role permissions.' &&
-      !error.message.includes('secret detail')
+  const started = await startServer(env, {
+    createPool(receivedEnv) {
+      readDatabaseConfig(receivedEnv);
+      throw new Error('unreachable');
+    },
+    createRepository() {
+      repositoryCreated = true;
+    },
+    logger,
+    hostnameSource: () => 'structured-secret-test-host'
+  });
+
+  try {
+    const baseUrl = `http://127.0.0.1:${started.server.address().port}`;
+    assert.equal((await fetch(`${baseUrl}/health/ready`)).status, 503);
+  } finally {
+    await new Promise((resolve, reject) => {
+      started.server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await started.repository.close();
+  }
+
+  assert.equal(repositoryCreated, false);
+  assert.match(
+    logEntries[0],
+    /configuration_invalid category=database_password_is_structured_value/
   );
-  assert.equal(closed, true);
+  assert.equal(JSON.stringify(logEntries).includes(structuredSecret), false);
+  assert.equal(JSON.stringify(logEntries).includes(innerSecret), false);
+});
+
+test('runtime database diagnostics exclude request, cookie, token-hash, and password data', async () => {
+  const expression = '987654 + 123456';
+  const browserToken = 'A'.repeat(43);
+  const browserTokenHash = hashHistoryToken(browserToken);
+  const password = 'DO_NOT_LOG_THIS_DATABASE_PASSWORD_12345';
+  const logEntries = [];
+  const databaseDiagnostics = createDatabaseDiagnostics({
+    logger: {
+      log: (message) => logEntries.push(message),
+      warn: (message) => logEntries.push(message),
+      error: (message) => logEntries.push(message)
+    },
+    instanceMarker: 'abc123def456'
+  });
+  const repository = createFakeRepository({
+    async saveCalculation() {
+      const error = new Error(
+        `${expression} ${browserToken} ${browserTokenHash} ${password}`
+      );
+      error.code = 'ETIMEDOUT';
+      throw error;
+    },
+    async getHistory() {
+      const error = new Error(`${browserTokenHash} ${password}`);
+      error.code = '08006';
+      throw error;
+    }
+  });
+
+  await withServer(
+    repository,
+    async (baseUrl) => {
+      await fetch(`${baseUrl}/calculate`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: `${HISTORY_COOKIE_NAME}=${browserToken}`
+        },
+        body: JSON.stringify({ expression })
+      });
+      await fetch(`${baseUrl}/history`, {
+        headers: { cookie: `${HISTORY_COOKIE_NAME}=${browserToken}` }
+      });
+    },
+    { databaseDiagnostics }
+  );
+
+  assert.match(logEntries[0], /operation=save_calculation/);
+  assert.match(logEntries[1], /operation=retrieve_history/);
+  for (const privateValue of [
+    expression,
+    browserToken,
+    browserTokenHash,
+    password
+  ]) {
+    assert.equal(JSON.stringify(logEntries).includes(privateValue), false);
+  }
+});
+
+test('configured but unavailable PostgreSQL starts degraded and can recover', async () => {
+  const events = [];
+  let ready = false;
+  const repository = createFakeRepository({
+    async checkReadiness() {
+      events.push('readiness');
+      return ready;
+    }
+  });
+  const logger = {
+    log: (message) => events.push(message),
+    warn: (message) => events.push(message),
+    error: (message) => events.push(message)
+  };
+  const started = await startServer(
+    {
+      HOST: '127.0.0.1',
+      PORT: '0',
+      HISTORY_COOKIE_SECURE: 'false',
+      DATABASE_HOST: 'db.internal.test',
+      DATABASE_PORT: '5432',
+      DATABASE_NAME: 'cougarcalc',
+      DATABASE_USER: 'cougarcalc_app',
+      DATABASE_PASSWORD: 'never-log-this'
+    },
+    {
+      createPool: () => ({}),
+      createRepository: () => repository,
+      logger,
+      hostnameSource: () => 'recovery-test-host'
+    }
+  );
+
+  try {
+    const baseUrl = `http://127.0.0.1:${started.server.address().port}`;
+    assert.equal((await fetch(`${baseUrl}/health/ready`)).status, 503);
+    ready = true;
+    assert.equal((await fetch(`${baseUrl}/health/ready`)).status, 200);
+  } finally {
+    await new Promise((resolve, reject) => {
+      started.server.close((error) => (error ? reject(error) : resolve()));
+    });
+    await started.repository.close?.();
+  }
+
+  assert.equal(JSON.stringify(events).includes('never-log-this'), false);
+  assert.equal(
+    events.filter((event) => String(event).includes('readiness_failed')).length,
+    1
+  );
+  assert.equal(
+    events.filter((event) => String(event).includes('readiness_recovered')).length,
+    1
+  );
+  assert.equal(
+    events.some(
+      (event) =>
+        String(event).includes('readiness_recovered') &&
+        String(event).includes('instance=')
+    ),
+    true
+  );
 });
 
 // This exercises the complete successful startup path rather than creating the
@@ -615,6 +934,10 @@ test('successful startup verifies readiness and propagates secure-cookie configu
       events.push('verify schema');
       return true;
     },
+    async checkReadiness() {
+      await this.verifyConnection();
+      return this.verifySchema();
+    },
     async getHistory() {
       return [];
     },
@@ -627,7 +950,12 @@ test('successful startup verifies readiness and propagates secure-cookie configu
     HOST: '127.0.0.1',
     PORT: '0',
     NODE_ENV: 'test',
-    HISTORY_COOKIE_SECURE: 'true'
+    HISTORY_COOKIE_SECURE: 'true',
+    DATABASE_HOST: 'db.internal.test',
+    DATABASE_PORT: '5432',
+    DATABASE_NAME: 'cougarcalc',
+    DATABASE_USER: 'cougarcalc_app',
+    DATABASE_PASSWORD: 'test-only-placeholder'
   };
 
   const started = await startServer(env, {
@@ -640,7 +968,8 @@ test('successful startup verifies readiness and propagates secure-cookie configu
       assert.equal(receivedPool, pool);
       events.push('create repository');
       return repository;
-    }
+    },
+    hostnameSource: () => 'successful-start-test-host'
   });
 
   try {

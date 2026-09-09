@@ -14,9 +14,18 @@ const {
   createHistoryIdentity,
   readHistoryCookieSecure
 } = require('./browser-identity');
-const { createPoolFromEnv, createPostgresRepository } = require('./database');
+const {
+  createPoolFromEnv,
+  createPostgresRepository,
+  createUnavailableRepository,
+  getMissingDatabaseVariables
+} = require('./database');
+const { createDatabaseDiagnostics } = require('./database-diagnostics');
+const { createInstanceMarker } = require('./instance-marker');
 
 const EXPRESSION_PATTERN = /^[0-9.+\-*/()\s]+$/;
+const UNSAVED_WARNING =
+  'History is temporarily unavailable; this calculation was not saved.';
 
 function calculateExpression(expression) {
   const sanitized = expression.replace(/\s+/g, '');
@@ -42,6 +51,9 @@ function createApp({
   repository,
   nodeEnv = process.env.NODE_ENV || 'development',
   historyCookieSecure = false,
+  hostnameSource,
+  instanceMarker,
+  databaseDiagnostics,
   onDatabaseError = () => {}
 }) {
   if (!repository) {
@@ -52,6 +64,22 @@ function createApp({
   }
 
   const app = express();
+  const servingInstanceMarker =
+    instanceMarker || createInstanceMarker(hostnameSource);
+
+  function reportDatabaseFailure(operation, error) {
+    databaseDiagnostics?.operationFailed(operation, error);
+    onDatabaseError(operation, error);
+  }
+
+  function reportDatabaseRecovery(operation) {
+    databaseDiagnostics?.operationRecovered(operation);
+  }
+
+  app.use((_req, res, next) => {
+    res.setHeader('X-CougarCalc-Instance', servingInstanceMarker);
+    next();
+  });
 
   app.use((req, res, next) => {
     const needsHistoryIdentity =
@@ -86,11 +114,40 @@ function createApp({
     res.json({ environment: nodeEnv });
   });
 
+  app.get('/health/live', (_req, res) => {
+    res.json({ status: 'live' });
+  });
+
+  app.get('/health/ready', async (_req, res) => {
+    let ready = false;
+    try {
+      ready = (await repository.checkReadiness()) === true;
+      if (ready) {
+        databaseDiagnostics?.readinessRecovered();
+      } else {
+        databaseDiagnostics?.readinessNotReady();
+      }
+    } catch (error) {
+      databaseDiagnostics?.readinessFailed('connection', error);
+      onDatabaseError('readiness_check', error);
+    }
+
+    return res
+      .status(ready ? 200 : 503)
+      .json({ status: ready ? 'ready' : 'not ready' });
+  });
+
+  app.get('/diagnostics/instance', (_req, res) => {
+    res.json({ instance: servingInstanceMarker });
+  });
+
   app.get('/history', async (req, res) => {
     try {
-      return res.json(await repository.getHistory(req.historyTokenHash));
-    } catch (_error) {
-      onDatabaseError('retrieve history');
+      const history = await repository.getHistory(req.historyTokenHash);
+      reportDatabaseRecovery('retrieve_history');
+      return res.json(history);
+    } catch (error) {
+      reportDatabaseFailure('retrieve_history', error);
       return res.status(503).json({
         error: 'Calculation history is temporarily unavailable.'
       });
@@ -153,10 +210,13 @@ function createApp({
         expression: storedExpression,
         result
       });
-    } catch (_error) {
-      onDatabaseError('save calculation');
-      return res.status(503).json({
-        error: 'The calculation could not be saved.'
+      reportDatabaseRecovery('save_calculation');
+    } catch (error) {
+      reportDatabaseFailure('save_calculation', error);
+      return res.json({
+        result,
+        saved: false,
+        warning: UNSAVED_WARNING
       });
     }
 
@@ -178,40 +238,63 @@ async function startServer(
   env = process.env,
   {
     createPool = createPoolFromEnv,
-    createRepository = createPostgresRepository
+    createRepository = createPostgresRepository,
+    createUnavailable = createUnavailableRepository,
+    hostnameSource,
+    logger = console
   } = {}
 ) {
   const historyCookieSecure = readHistoryCookieSecure(env);
-  const pool = createPool(env);
-  const repository = createRepository(pool);
+  const instanceMarker = createInstanceMarker(hostnameSource);
+  const databaseDiagnostics = createDatabaseDiagnostics({
+    logger,
+    instanceMarker
+  });
+  const missingVariables = getMissingDatabaseVariables(env);
+  let repository;
+  let hasConfiguredRepository = false;
 
-  try {
-    await repository.verifyConnection();
-  } catch (_error) {
-    await repository.close().catch(() => {});
-    throw new Error('Unable to connect to PostgreSQL using the configured settings.');
+  if (missingVariables.length > 0) {
+    databaseDiagnostics.configurationIncomplete(missingVariables);
+    repository = createUnavailable();
+    databaseDiagnostics.startingInDegradedMode();
+  } else {
+    try {
+      const pool = createPool(env, { diagnostics: databaseDiagnostics });
+      repository = createRepository(pool, { diagnostics: databaseDiagnostics });
+      hasConfiguredRepository = true;
+    } catch (error) {
+      databaseDiagnostics.configurationInvalid(error);
+      repository = createUnavailable();
+      databaseDiagnostics.startingInDegradedMode();
+    }
   }
 
-  try {
-    if (!(await repository.verifySchema())) {
-      throw new Error('Required database structure or permissions are missing.');
+  if (hasConfiguredRepository) {
+    let initiallyReady = false;
+    try {
+      initiallyReady = (await repository.checkReadiness()) === true;
+      if (initiallyReady) {
+        databaseDiagnostics.readinessRecovered();
+      } else {
+        databaseDiagnostics.readinessNotReady();
+      }
+    } catch (error) {
+      databaseDiagnostics.readinessFailed('connection', error);
+      initiallyReady = false;
     }
-  } catch (_error) {
-    await repository.close().catch(() => {});
-    throw new Error(
-      'PostgreSQL is connected but not ready. Verify ' +
-        'database/migrations/001-create-calculation-history.sql and ' +
-        'the application role permissions.'
-    );
+
+    if (!initiallyReady) {
+      databaseDiagnostics.startingInDegradedMode();
+    }
   }
 
   const app = createApp({
     repository,
     nodeEnv: env.NODE_ENV || 'development',
     historyCookieSecure,
-    onDatabaseError(context) {
-      console.error(`Database operation failed: ${context}.`);
-    }
+    instanceMarker,
+    databaseDiagnostics
   });
   const port = env.PORT || 3000;
   const host = env.HOST || '0.0.0.0';
@@ -229,9 +312,10 @@ async function startServer(
 
   const browserHost = host === '0.0.0.0' ? '127.0.0.1' : host;
   const listeningPort = server.address().port;
-  console.log(`CougarCalc listening on http://${browserHost}:${listeningPort}`);
+  logger.log(`Node.js runtime: ${process.version}`);
+  logger.log(`CougarCalc listening on http://${browserHost}:${listeningPort}`);
   if (host === '0.0.0.0') {
-    console.log(`From another device, use http://<this-computer-ip>:${port}`);
+    logger.log(`From another device, use http://<this-computer-ip>:${port}`);
   }
 
   return { app, repository, server };
@@ -257,6 +341,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  UNSAVED_WARNING,
   calculateExpression,
   createApp,
   startServer

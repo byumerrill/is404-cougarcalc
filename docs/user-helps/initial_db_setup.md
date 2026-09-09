@@ -2,7 +2,7 @@
 
 This guide sets up PostgreSQL 17 for CougarCalc. It is written for a first-time PostgreSQL user and separates database administration from the account used by the running application.
 
-It also explains the anonymous browser-history cookie used by Release 2. No IP addresses, user accounts, or browser fingerprints are stored.
+It also explains the anonymous browser-history cookie retained in Release 03. No IP addresses, user accounts, or browser fingerprints are stored.
 
 ## What this setup creates
 
@@ -29,7 +29,7 @@ Do not use a real password from this document. Generate a different password for
 
 - Work from the root of this repository when a command uses a relative path.
 - Use the latest available **17.x** installer even if a newer major version is offered. PostgreSQL minor releases contain fixes rather than application-breaking feature changes; do not seek out an old 17.0 installer.
-- Use a supported Node.js version that provides `process.loadEnvFile()` (Node 20.12 or newer). A current LTS release is preferred.
+- Use Node.js 22.x, matching `package.json` and the selected Elastic Beanstalk platform branch.
 - If PostgreSQL is already installed, do not install a second copy until you know which version, port, and data directory the existing server uses. Multiple local servers commonly compete for port `5432`.
 - Back up any existing database with the same name before replacing or modifying it.
 
@@ -233,7 +233,7 @@ SELECT * FROM public.calculation_history LIMIT 1;
 
 `can_use_schema`, `can_select`, `can_insert`, and `can_use_identity_sequence` should be true. `can_update` and `can_delete` should be false in this least-privilege setup.
 
-When CougarCalc starts, `verifySchema()` performs a stricter readiness check before opening the HTTP listener. It verifies:
+When database configuration is complete, CougarCalc runs `checkReadiness()` before opening the HTTP listener. That check first verifies the connection and then uses `verifySchema()` to inspect:
 
 - the exact five column names, data types, and non-null requirements, including `browser_token_hash`;
 - the validated lowercase 64-character SHA-256 check constraint on `browser_token_hash`;
@@ -243,6 +243,8 @@ When CougarCalc starts, `verifySchema()` performs a stricter readiness check bef
 - schema `USAGE`, table `SELECT` and `INSERT`, and identity-sequence `USAGE` for the connected role.
 
 These are minimum required privileges. Startup does not fail merely because the connected role has additional privileges, although the recommended `cougarcalc_app` setup grants only what the current application needs.
+
+If a check fails, Express still starts in degraded mode. The public readiness response remains only `not ready`; safe server logs identify the fixed stage (`connection`, `schema_columns`, `schema_constraint`, `schema_primary_key`, `schema_index`, or `runtime_privileges`) without exposing connection or user data.
 
 ## Configure the local `.env` file
 
@@ -273,11 +275,12 @@ DATABASE_PORT=5432
 DATABASE_NAME=cougarcalc
 DATABASE_USER=cougarcalc_app
 DATABASE_PASSWORD="replace-with-the-cougarcalc-app-password"
+DATABASE_TLS_MODE=disable
 ```
 
 Quotes are useful when a value contains spaces or `#`; the quote characters are not part of the value. Keep the password on one line. Do not add spaces to the variable names.
 
-For this HTTP release, keep `HISTORY_COOKIE_SECURE=false`. The browser still receives an `HttpOnly`, `SameSite=Lax`, `Path=/` cookie with a 365-day lifetime. When a future release adds HTTPS, change this setting to `true`. If it is `true` while using HTTP, browsers will not return the cookie and every request can appear to have a new empty history.
+For local HTTP and the initial HTTP-only Beanstalk validation, keep `HISTORY_COOKIE_SECURE=false`. The browser still receives an `HttpOnly`, `SameSite=Lax`, `Path=/` cookie with a 365-day lifetime. During the Release 03 AWS HTTPS transition, change this setting to `true` only after the custom hostname, load-balancer certificate, HTTPS listener, and redirect work. If it is `true` while using HTTP, browsers will not return the cookie and every request can appear to have a new empty history.
 
 The repository's `.gitignore` already excludes `.env` and `.env.*` while allowing `.env.example`. Verify that Git ignores the populated file:
 
@@ -305,7 +308,7 @@ The automated tests do not require a real database. Then run the real database s
 node debug-check.js
 ```
 
-The smoke check starts the app on a temporary local port, retains one anonymous cookie, inserts a calculation, retrieves that browser's history, and closes the server and connection pool. It never prints the cookie or hash. Finally, start the app normally:
+The smoke check starts the app on a temporary local port, retains one anonymous cookie internally, inserts a calculation, retrieves that browser's history, and closes the server and connection pool. It prints only readiness, save status, history count, and the short instance marker—not the expression, result, cookie, token/hash, database configuration, or raw error. See [release-validation.md](release-validation.md) for every validation check and its prerequisites. Finally, start the app normally:
 
 ```text
 npm start
@@ -383,50 +386,55 @@ Before a production migration:
 
 Migration `001` initializes a clean Release 2 database and uses repeatable guards where PostgreSQL supports them. These guards do not make every future schema change safe or reversible, and they do not repair objects with incorrect definitions.
 
-## AWS Elastic Beanstalk with Amazon RDS for PostgreSQL
+## AWS Elastic Beanstalk with Aurora/RDS for PostgreSQL
 
-Use a standalone RDS PostgreSQL 17 instance rather than coupling the database lifecycle to an Elastic Beanstalk environment. A standalone database can survive rebuilding or terminating an application environment. AWS documents the relevant architecture in [Using Elastic Beanstalk with Amazon RDS](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/AWSHowTo.RDS.html).
+The current instructor architecture uses an Aurora Serverless v2 PostgreSQL-compatible database managed separately from the Elastic Beanstalk environment. Separating the database lifecycle allows it to survive rebuilding or terminating the application environment. The application also works with a separately managed RDS for PostgreSQL instance when the same schema, role, network, and verified-TLS contract is used. AWS documents the separation pattern in [Using Elastic Beanstalk with Amazon RDS](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/AWSHowTo.RDS.html) and the wake-up behavior in [Scaling to Zero ACUs with automatic pause and resume](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html).
 
-Recommended production shape:
+Release 03 requirements:
 
-- Put RDS and the Beanstalk instances in the same VPC.
-- Make RDS private (`Public access: No`).
-- Allow inbound PostgreSQL traffic on port `5432` to the RDS security group only from the Beanstalk instance security group, never from `0.0.0.0/0`.
+- Keep RDS and the Beanstalk instances on an explicitly reviewed network path.
+- Decide public versus private RDS access during the guided infrastructure walkthrough; do not guess it in application setup.
+- Allow inbound PostgreSQL traffic on port `5432` only through the narrow course-approved security-group relationship, never from `0.0.0.0/0`.
 - Enable storage encryption, automated backups, deletion protection, and an appropriate retention period.
 - Use a separate database and separate credentials for staging and production.
 - Treat the RDS primary/master login as an administrator, not as the app login.
 - Create the owner/app roles, run the DDL as the owner, and grant runtime permissions using the same model as local setup.
 - Run migrations from a controlled host or job that can reach the private RDS endpoint. Do not make application startup silently apply DDL.
 
-Set non-secret connection values as Beanstalk environment properties:
+For the first managed course deployment, set the application configuration through Beanstalk environment properties:
 
 ```text
 DATABASE_HOST=<the RDS endpoint, without https://>
 DATABASE_PORT=5432
 DATABASE_NAME=cougarcalc
+DATABASE_USER=cougarcalc_app
+DATABASE_TLS_MODE=verify-full
+DATABASE_CA_PATH=database/certs/global-bundle.pem
 NODE_ENV=production
-HISTORY_COOKIE_SECURE=true
+HISTORY_COOKIE_SECURE=false
 ```
 
-Use `HISTORY_COOKIE_SECURE=true` only when users reach Beanstalk through HTTPS. This browser-cookie setting is separate from PostgreSQL TLS.
+Keep `HISTORY_COOKIE_SECURE=false` for initial HTTP validation. Change it to `true` only after users reach Beanstalk through the custom HTTPS hostname. This browser-cookie setting is separate from PostgreSQL TLS.
 
-Store `DATABASE_USER` and especially `DATABASE_PASSWORD` in AWS Secrets Manager or Systems Manager Parameter Store and expose them through Beanstalk environment secrets. Do not upload a production `.env` file in the application bundle. See [Fetching secrets and parameters to Elastic Beanstalk environment variables](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/AWSHowTo.secrets.env-vars.html).
+Configure `DATABASE_PASSWORD` as a secret-backed Elastic Beanstalk environment variable. If Secrets Manager stores a JSON credential object, select its top-level `password` field (for example, with Elastic Beanstalk's supported `:password` JSON-key suffix). CougarCalc expects one scalar password and rejects a parseable JSON object before pool creation as `database_password_is_structured_value`.
 
-### Required TLS code change before using RDS
+Never place the password, complete secret, or secret ARN in Git, the source bundle, screenshots, tests, documentation examples, or logs. Grant the Beanstalk instance profile only the permission required to retrieve the intended secret, and follow AWS's current [Elastic Beanstalk secrets and parameters documentation](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/AWSHowTo.secrets.env-vars.html). Do not upload `.env` in the application bundle.
 
-The current [`database.js`](../../database.js) passes only host, port, database, user, and password to the `pg` connection pool. It does **not** enable TLS or load an AWS RDS certificate authority bundle. Therefore the current revision should not be described as production-ready for RDS.
+Elastic Beanstalk resolves the secret during instance bootstrapping. After rotating the secret, use an approved environment update or application-server restart to refresh existing instances. During a scaled rollout, old and new credentials may need to overlap until every target has refreshed.
 
-Before the RDS lab, extend and test the app so that production connections:
+### Verified TLS support
 
-1. Enable the `ssl` option in the `pg.Pool` configuration.
-2. Load the current AWS RDS CA bundle from a deployed file or other controlled configuration.
-3. Verify the server certificate and endpoint hostname; do not solve certificate errors with `rejectUnauthorized: false`.
-4. Keep local development able to connect without TLS when using the local server.
-5. Add configuration tests for both local and RDS modes without printing secrets.
+Release 03 [`database.js`](../../database.js) implements explicit TLS modes:
+
+1. `DATABASE_TLS_MODE=disable` provides intentional local non-TLS.
+2. `DATABASE_TLS_MODE=verify-full` loads the PEM file named by `DATABASE_CA_PATH`.
+3. Verified mode requires a DNS hostname and `rejectUnauthorized: true`, so Node validates both the Amazon CA chain and endpoint hostname.
+4. A raw IP, missing/unreadable CA, malformed CA, or unsupported mode starts safely degraded.
+5. Connection, query, and public readiness ceilings are 35, 10, and 10 seconds. The longer connection allowance supports Aurora resume while keeping each public readiness response bounded.
 
 `node-postgres` accepts an `ssl` object in its client/pool configuration; see its [SSL documentation](https://node-postgres.com/features/ssl). AWS explains certificate download, verification, and `rds.force_ssl` in [Using SSL with a PostgreSQL DB instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.SSL.html).
 
-After TLS support exists, verify an RDS connection with certificate validation and confirm on the database side that SSL is in use. Keep the RDS CA certificate out of secret storage; it is a public trust certificate. Verify its source and update it during AWS CA rotations.
+Verify the RDS connection with certificate validation and confirm on the database side that SSL is in use. The checked-in `database/certs/global-bundle.pem` is Amazon's public trust bundle, not a secret. Compare it with the official AWS trust-store source during certificate rotations and before a release; review, test, rebuild, and deploy updates before affected server certificates expire.
 
 ## Future migrations
 
@@ -452,7 +460,9 @@ Confirm that the server is running and that the configured port matches the inst
 
 ### Password authentication failed
 
-Confirm the username, database, port, and which password is being entered. The `postgres` administrator and `cougarcalc_app` should have different passwords. Reset the app password from an authorized administrator session with `\password cougarcalc_app`, then update the local or deployment secret.
+Confirm the username, database, port, and which password is being entered. The safe application log category is `authentication_failed` with PostgreSQL code `28P01`; it is not retryable with unchanged credentials. The `postgres` administrator and `cougarcalc_app` should have different passwords. Reset the app password from an authorized administrator session with `\password cougarcalc_app`, then update the local or deployment secret.
+
+If the category is `database_password_is_structured_value`, do not reset the database password. Correct the Elastic Beanstalk secret-backed variable so it extracts the JSON secret's top-level `password` field instead of injecting the complete object.
 
 ### Database or role already exists
 
@@ -462,9 +472,11 @@ Do not delete it automatically. Inspect it first. It may contain work from an ea
 
 Connect as the administrator, `SET ROLE cougarcalc_owner`, and reapply the explicit table and sequence grants. Confirm that the migration objects are owned by `cougarcalc_owner`; default privileges do not apply to objects created by a different role.
 
-### App says PostgreSQL is not ready
+### Readiness says PostgreSQL is not ready
 
-Confirm that `public.calculation_history` exists in the same database named by `DATABASE_NAME` and matches the required non-null columns, identity/primary-key configuration, and browser-scoped history index. For a clean Release 2 database, rerun migration `001` as `cougarcalc_owner` with `ON_ERROR_STOP` enabled, address the first error, and then verify the schema, table, and sequence grants. `IF NOT EXISTS` does not convert an older or incompatible table into the expected schema; recreate a disposable development database or write a deliberate future migration instead.
+Use the safe `readiness_failed` stage before changing infrastructure. `connection` points to configuration, DNS, networking, TLS, authentication, database name, or Aurora wake-up. The four `schema_*` stages point to migration/schema drift. `runtime_privileges` points to schema, table, or sequence grants.
+
+For schema failures, confirm that `public.calculation_history` exists in the database named by `DATABASE_NAME` and matches the required non-null columns, identity/primary-key configuration, constraint, and browser-scoped history index. For a clean Release 2 database, rerun migration `001` as `cougarcalc_owner` with `ON_ERROR_STOP` enabled, address the first error, and then verify the grants. `IF NOT EXISTS` does not convert an older or incompatible table into the expected schema; recreate a disposable development database or write a deliberate future migration instead.
 
 ### Browser history is always empty
 
@@ -472,8 +484,8 @@ Confirm `HISTORY_COOKIE_SECURE=false` while using HTTP and check that the browse
 
 ### RDS times out
 
-A timeout is usually networking rather than a password error. Check the VPC, routes, RDS availability, and security-group rule from the Beanstalk instance security group. Do not make RDS public as a shortcut.
+A timeout can mean Aurora is waking from auto-pause or that the network path is blocked. A readiness request returns after at most 10 seconds while the shared connection attempt can continue for up to 35 seconds. Poll readiness at a reasonable interval and look for one `readiness_recovered` event. If it does not recover, check Aurora/RDS availability, VPC routes, DNS, and the security-group rule from the Beanstalk instance security group. Do not make the database public as a shortcut.
 
 ### RDS reports an SSL error
 
-Do not disable certificate verification. Confirm that the app revision supports TLS, uses the current AWS RDS CA bundle, connects to the exact RDS endpoint hostname, and is deployed on a Beanstalk platform that receives the intended environment configuration.
+Do not disable certificate verification. Confirm `DATABASE_TLS_MODE=verify-full`, the current AWS RDS CA bundle path, the exact RDS endpoint hostname rather than an IP address, and the intended Beanstalk environment properties.

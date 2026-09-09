@@ -1,10 +1,19 @@
 # CougarCalc environments
 
-Release 2 keeps the Release 1 deployment model: Node.js runs the Express application directly, and PostgreSQL runs separately as its own service. History is isolated by an anonymous browser cookie; there are no user accounts or IP-address records.
+Release 03 uses the same source bundle in every environment. Only environment properties differ. Node.js 22 runs the Express app, and PostgreSQL remains a separate service.
 
-Only environment variables differ between deployments. Application code and SQL do not.
+## Application settings
 
-## Required database variables
+```text
+HOST
+PORT
+NODE_ENV
+HISTORY_COOKIE_SECURE
+```
+
+`HOST` defaults to `0.0.0.0`, `PORT` defaults to `3000`, and `NODE_ENV` defaults to `development`. `HISTORY_COOKIE_SECURE` defaults to `false` and, when supplied, accepts only exact `true` or `false`.
+
+## Database settings
 
 ```text
 DATABASE_HOST
@@ -12,21 +21,18 @@ DATABASE_PORT
 DATABASE_NAME
 DATABASE_USER
 DATABASE_PASSWORD
+DATABASE_TLS_MODE
+DATABASE_CA_PATH
 ```
 
-Optional application settings are `HOST`, `PORT`, `NODE_ENV`, and `HISTORY_COOKIE_SECURE`.
+History is configured only when all first five connection values are nonblank. Missing or partial settings start degraded. `DATABASE_TLS_MODE` is still required when the connection values are complete:
 
-`HISTORY_COOKIE_SECURE` accepts only `true` or `false`:
+- `disable` means explicit local non-TLS and requires `DATABASE_CA_PATH` to be absent.
+- `verify-full` means verified TLS, requires a DNS hostname, and requires `DATABASE_CA_PATH` to point to a public PEM CA bundle.
 
-- Use `false` when the browser reaches CougarCalc over HTTP.
-- Use `true` only when the browser reaches CougarCalc over HTTPS.
-- A browser will not return a `Secure` cookie over ordinary HTTP.
+`DATABASE_PASSWORD` must resolve to one scalar password. A parseable JSON object is treated as configuration misuse and rejected before a pool is created. Connection attempts are allowed up to 35 seconds for Aurora wake-up, queries up to 10 seconds, and public readiness requests up to 10 seconds.
 
-## Local development
-
-Install Node.js and PostgreSQL 17. Create the owner and app roles, apply migration `001`, copy `.env.example` to `.env`, and use `npm start`.
-
-Typical non-secret values are:
+## Local PostgreSQL
 
 ```text
 HOST=127.0.0.1
@@ -37,60 +43,69 @@ DATABASE_HOST=localhost
 DATABASE_PORT=5432
 DATABASE_NAME=cougarcalc
 DATABASE_USER=cougarcalc_app
+DATABASE_PASSWORD=local-only-value
+DATABASE_TLS_MODE=disable
 ```
 
-Supply the actual app password only through the ignored `.env` file or terminal environment. Create database objects as `cougarcalc_owner`; do not run DDL as `cougarcalc_app` or configure the app with an administrator login.
+Keep the password only in ignored `.env` or the terminal environment. Create objects as `cougarcalc_owner`; do not give the Node application an administrator or owner login.
 
-Each browser profile receives a different `cougarcalc_history` cookie. Chrome, Edge, a private window, and a second device therefore begin with separate histories.
+## AWS degraded validation
 
-## Ubuntu HTTP service
-
-Install PostgreSQL as a Linux service independently from CougarCalc. Create deployment-specific roles, initialize the database as `cougarcalc_owner`, grant minimum runtime privileges to `cougarcalc_app`, and provide the application settings through the systemd service environment.
-
-Use:
+Initially omit every database property and use:
 
 ```text
 NODE_ENV=production
 HISTORY_COOKIE_SECURE=false
-DATABASE_HOST=localhost
 ```
 
-`NODE_ENV=production` does not automatically mark the cookie `Secure`; the explicit cookie setting prevents breaking an intentional HTTP deployment. Do not reuse local passwords on the VM.
+Beanstalk supplies `PORT`, and the application listens on all IPv4 interfaces by default. Use `/health/live` for the initial Beanstalk health path. Calculator results work but explicitly report `saved: false`.
 
-Start and enable PostgreSQL with:
+## AWS with Aurora/RDS for PostgreSQL
 
-```bash
-sudo systemctl enable --now postgresql
-sudo systemctl status --no-pager postgresql
+After migration and network access are ready:
+
+```text
+NODE_ENV=production
+HISTORY_COOKIE_SECURE=false
+DATABASE_HOST=the-rds-dns-endpoint
+DATABASE_PORT=5432
+DATABASE_NAME=cougarcalc
+DATABASE_USER=cougarcalc_app
+DATABASE_TLS_MODE=verify-full
+DATABASE_CA_PATH=database/certs/global-bundle.pem
 ```
 
-Use `HOST=0.0.0.0` only when the application should listen on all IPv4 interfaces. Firewall and host access rules remain deployment responsibilities. Do not expose PostgreSQL port `5432` when Node and PostgreSQL communicate over localhost.
+Configure `DATABASE_PASSWORD` as a secret-backed Elastic Beanstalk environment variable. When the Secrets Manager value is a JSON credential object, select its top-level `password` field (for example, with the supported `:password` JSON-key suffix). Do not inject the complete JSON secret. It will be rejected as `database_password_is_structured_value`, and neither the JSON nor its embedded password will be logged.
 
-## Future HTTPS environment
+The password and secret ARN/value must not enter Git, the ZIP, screenshots, fixtures, documentation examples, or logs. The Beanstalk instance profile must have only the permission needed to retrieve the intended secret. Follow AWS's current [Elastic Beanstalk secrets and parameters guidance](https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/AWSHowTo.secrets.env-vars.html).
 
-After HTTPS is deployed, set:
+Beanstalk fetches secret values when instances bootstrap. A Secrets Manager rotation does not automatically refresh every existing instance; deliberately update or restart the environment and allow for a temporary mix of old/new values during scaling.
+
+The public RDS CA bundle is not a secret. Review it against Amazon's current trust-store copy during certificate rotation and before a new release.
+
+Once `/health/ready` returns `200` and browser history persists, switch the Beanstalk health path to readiness.
+
+## AWS after HTTPS
+
+After the custom hostname, ACM certificate, HTTPS listener, and redirect are all verified, change:
 
 ```text
 HISTORY_COOKIE_SECURE=true
 ```
 
-The application then adds the `Secure` attribute to the cookie. This protects browser-cookie transport but is separate from PostgreSQL TLS configuration.
+This changes the anonymous browser cookie. It is independent of RDS TLS, which remains `DATABASE_TLS_MODE=verify-full`.
 
-## Verification
+## Verification in every ready environment
 
-In every environment:
+1. Apply migration `001` as `cougarcalc_owner`, never through web startup.
+2. Grant `cougarcalc_app` schema `USAGE`, table `SELECT` and `INSERT`, and sequence `USAGE`.
+3. Confirm liveness `200` and readiness `200`.
+4. Save two calculations in one browser and confirm newest-first history.
+5. Confirm another browser receives separate history.
+6. Restart Node and confirm both browser histories persist.
+7. Stop or block PostgreSQL and confirm prompt readiness/history failure plus successful unsaved calculations.
+8. Restore PostgreSQL and confirm readiness and new saves recover.
 
-1. Create separate `cougarcalc_owner` and `cougarcalc_app` roles.
-2. Run migration `001` as `cougarcalc_owner`.
-3. Grant `cougarcalc_app` schema `USAGE`, table `SELECT` and `INSERT`, and identity-sequence `USAGE`.
-4. Confirm `npm ci` and `npm test`.
-5. Start CougarCalc and verify readiness passes for all five non-null columns, the validated browser-hash constraint, scoped index, identity, primary key, and minimum privileges.
-6. Submit at least two calculations in one browser.
-7. Confirm `GET /history` returns only that browser's calculations newest first.
-8. Open another browser and confirm its history is empty; add a different calculation there.
-9. Restart Node and confirm both browser histories remain separate and persistent.
-10. Clear one browser's cookie and confirm only that browser receives a new empty history.
+Public failures remain generic. Logs may identify safe configuration characteristics, missing variable names, readiness stages, fixed operation names, classified categories, bounded codes, retryability, elapsed time, state transitions, and the short instance marker. They never contain database hostnames or usernames, passwords, secret ARNs/values, connection strings, calculation expressions, request bodies, cookies, browser tokens/hashes, SQL text, stack traces, raw errors, CA contents, or the complete environment.
 
-Additional database privileges do not cause startup failure, but the recommended app role should remain least-privileged. See [initial_db_setup.md](initial_db_setup.md) for complete commands.
-
-Containers, cloud services, reverse proxies, HTTPS termination, authentication, and CI/CD remain outside this Release 2 implementation.
+See [release-validation.md](release-validation.md) for the check matrix and the required local, bundle, browser, and AWS validation evidence.

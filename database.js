@@ -1,4 +1,10 @@
 const { Pool } = require('pg');
+const fs = require('node:fs');
+const net = require('node:net');
+const {
+  createDatabaseDiagnostics,
+  createSafeDatabaseError
+} = require('./database-diagnostics');
 
 const REQUIRED_DATABASE_VARIABLES = [
   'DATABASE_HOST',
@@ -7,6 +13,13 @@ const REQUIRED_DATABASE_VARIABLES = [
   'DATABASE_USER',
   'DATABASE_PASSWORD'
 ];
+
+// Aurora Serverless v2 can need more than 30 seconds to resume after a long
+// pause. The public readiness request remains independently bounded below.
+const CONNECTION_TIMEOUT_MILLIS = 35_000;
+const QUERY_TIMEOUT_MILLIS = 10_000;
+const READINESS_TIMEOUT_MILLIS = 10_000;
+const DATABASE_TLS_MODES = new Set(['disable', 'verify-full']);
 
 const EXPECTED_COLUMNS = new Map([
   [
@@ -139,10 +152,17 @@ function requireBrowserTokenHash(value) {
   return value;
 }
 
-function readDatabaseConfig(env = process.env) {
-  const missingVariables = REQUIRED_DATABASE_VARIABLES.filter(
+function getMissingDatabaseVariables(env = process.env) {
+  return REQUIRED_DATABASE_VARIABLES.filter(
     (name) => typeof env[name] !== 'string' || env[name].trim() === ''
   );
+}
+
+function readDatabaseConfig(
+  env = process.env,
+  { readFile = fs.readFileSync } = {}
+) {
+  const missingVariables = getMissingDatabaseVariables(env);
 
   if (missingVariables.length > 0) {
     throw new Error(
@@ -151,9 +171,83 @@ function readDatabaseConfig(env = process.env) {
     );
   }
 
+  const trimmedPassword = env.DATABASE_PASSWORD.trim();
+  if (trimmedPassword.startsWith('{')) {
+    try {
+      const parsedPassword = JSON.parse(trimmedPassword);
+      if (
+        parsedPassword !== null &&
+        typeof parsedPassword === 'object' &&
+        !Array.isArray(parsedPassword)
+      ) {
+        // CougarCalc expects a scalar password. For a JSON Secrets Manager
+        // secret, Elastic Beanstalk must extract its top-level password field.
+        throw createSafeDatabaseError(
+          'COUGARCALC_DATABASE_PASSWORD_STRUCTURED'
+        );
+      }
+    } catch (error) {
+      if (error.code === 'COUGARCALC_DATABASE_PASSWORD_STRUCTURED') {
+        throw error;
+      }
+      // A password that merely begins with "{" remains a valid scalar value.
+    }
+  }
+
   const port = Number(env.DATABASE_PORT);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('DATABASE_PORT must be an integer between 1 and 65535.');
+  }
+
+  const tlsMode = env.DATABASE_TLS_MODE;
+  if (!DATABASE_TLS_MODES.has(tlsMode)) {
+    throw new Error(
+      'DATABASE_TLS_MODE must be either disable or verify-full.'
+    );
+  }
+
+  let ssl = false;
+  if (tlsMode === 'verify-full') {
+    if (net.isIP(env.DATABASE_HOST.trim()) !== 0) {
+      throw new Error(
+        'DATABASE_HOST must be a DNS hostname when DATABASE_TLS_MODE is verify-full.'
+      );
+    }
+    if (
+      typeof env.DATABASE_CA_PATH !== 'string' ||
+      env.DATABASE_CA_PATH.trim() === ''
+    ) {
+      throw new Error(
+        'DATABASE_CA_PATH is required when DATABASE_TLS_MODE is verify-full.'
+      );
+    }
+
+    let ca;
+    try {
+      ca = readFile(env.DATABASE_CA_PATH.trim(), 'utf8');
+    } catch (_error) {
+      throw new Error('DATABASE_CA_PATH could not be read.');
+    }
+
+    if (
+      typeof ca !== 'string' ||
+      !ca.includes('-----BEGIN CERTIFICATE-----') ||
+      !ca.includes('-----END CERTIFICATE-----')
+    ) {
+      throw new Error('DATABASE_CA_PATH must contain PEM certificates.');
+    }
+
+    ssl = {
+      ca,
+      rejectUnauthorized: true
+    };
+  } else if (
+    typeof env.DATABASE_CA_PATH === 'string' &&
+    env.DATABASE_CA_PATH.trim() !== ''
+  ) {
+    throw new Error(
+      'DATABASE_CA_PATH must be omitted when DATABASE_TLS_MODE is disable.'
+    );
   }
 
   return {
@@ -161,18 +255,57 @@ function readDatabaseConfig(env = process.env) {
     port,
     database: env.DATABASE_NAME.trim(),
     user: env.DATABASE_USER.trim(),
-    password: env.DATABASE_PASSWORD
+    password: env.DATABASE_PASSWORD,
+    ssl,
+    connectionTimeoutMillis: CONNECTION_TIMEOUT_MILLIS,
+    query_timeout: QUERY_TIMEOUT_MILLIS
   };
 }
 
-function createPoolFromEnv(env = process.env) {
-  const pool = new Pool(readDatabaseConfig(env));
+function createPoolFromEnv(
+  env = process.env,
+  {
+    PoolClass = Pool,
+    readFile = fs.readFileSync,
+    diagnostics = createDatabaseDiagnostics()
+  } = {}
+) {
+  const config = readDatabaseConfig(env, { readFile });
+  diagnostics.configurationValid({
+    tlsMode: env.DATABASE_TLS_MODE,
+    hostType: net.isIP(config.host) === 0 ? 'dns' : 'ip',
+    caConfigured: config.ssl !== false,
+    port: config.port
+  });
+  const pool = new PoolClass(config);
 
-  pool.on('error', () => {
-    console.error('An idle PostgreSQL connection failed.');
+  pool.on('error', (error) => {
+    diagnostics.idleConnectionFailed(error);
   });
 
   return pool;
+}
+
+function createUnavailableRepository() {
+  function unavailable() {
+    throw new Error('Calculation history is unavailable.');
+  }
+
+  return {
+    async checkReadiness() {
+      return false;
+    },
+
+    async saveCalculation() {
+      unavailable();
+    },
+
+    async getHistory() {
+      unavailable();
+    },
+
+    async close() {}
+  };
 }
 
 function toSafeIdentifier(value) {
@@ -193,8 +326,22 @@ function mapHistoryRow(row) {
   };
 }
 
-function createPostgresRepository(pool) {
-  return {
+function createPostgresRepository(
+  pool,
+  {
+    readinessTimeoutMillis = READINESS_TIMEOUT_MILLIS,
+    diagnostics
+  } = {}
+) {
+  if (
+    !Number.isInteger(readinessTimeoutMillis) ||
+    readinessTimeoutMillis < 1
+  ) {
+    throw new Error('readinessTimeoutMillis must be a positive integer.');
+  }
+
+  let readinessCheck;
+  const repository = {
     async verifyConnection() {
       await pool.query({
         name: 'cougarcalc-verify-connection',
@@ -202,7 +349,8 @@ function createPostgresRepository(pool) {
       });
     },
 
-    async verifySchema() {
+    async verifySchema({ onStage = () => {}, onInvalid = () => {} } = {}) {
+      onStage('schema_columns');
       const columnsResult = await pool.query({
         name: 'cougarcalc-verify-columns',
         text: `SELECT column_name,
@@ -218,9 +366,14 @@ function createPostgresRepository(pool) {
       });
 
       if (!hasExpectedColumns(columnsResult.rows)) {
+        onInvalid(
+          'schema_columns',
+          createSafeDatabaseError('COUGARCALC_SCHEMA_INVALID')
+        );
         return false;
       }
 
+      onStage('schema_constraint');
       const browserHashConstraintResult = await pool.query({
         name: 'cougarcalc-verify-browser-hash-constraint',
         text: `SELECT pg_catalog.pg_get_constraintdef(
@@ -249,9 +402,14 @@ function createPostgresRepository(pool) {
         browserHashConstraintResult.rows[0].definition !==
           BROWSER_TOKEN_HASH_CONSTRAINT_DEFINITION
       ) {
+        onInvalid(
+          'schema_constraint',
+          createSafeDatabaseError('COUGARCALC_SCHEMA_INVALID')
+        );
         return false;
       }
 
+      onStage('schema_primary_key');
       const primaryKeyResult = await pool.query({
         name: 'cougarcalc-verify-primary-key',
         text: `SELECT attribute.attname AS column_name
@@ -279,9 +437,14 @@ function createPostgresRepository(pool) {
         primaryKeyResult.rows.length !== 1 ||
         primaryKeyResult.rows[0].column_name !== 'calculation_id'
       ) {
+        onInvalid(
+          'schema_primary_key',
+          createSafeDatabaseError('COUGARCALC_SCHEMA_INVALID')
+        );
         return false;
       }
 
+      onStage('schema_index');
       const browserIndexResult = await readIndexColumns(pool, {
         statementName: 'cougarcalc-verify-browser-history-index',
         indexName: 'calculation_history_browser_newest_idx'
@@ -294,9 +457,14 @@ function createPostgresRepository(pool) {
           { name: 'calculation_id', isDescending: true }
         ])
       ) {
+        onInvalid(
+          'schema_index',
+          createSafeDatabaseError('COUGARCALC_SCHEMA_INVALID')
+        );
         return false;
       }
 
+      onStage('runtime_privileges');
       const privilegesResult = await pool.query({
         name: 'cougarcalc-verify-runtime-privileges',
         text: `SELECT has_schema_privilege(
@@ -329,13 +497,21 @@ function createPostgresRepository(pool) {
       });
       const privileges = privilegesResult.rows[0];
 
-      return Boolean(
+      const hasRuntimePrivileges = Boolean(
         privileges &&
           privileges.has_schema_usage === true &&
           privileges.has_table_select === true &&
           privileges.has_table_insert === true &&
           privileges.has_sequence_usage === true
       );
+      if (!hasRuntimePrivileges) {
+        onInvalid(
+          'runtime_privileges',
+          createSafeDatabaseError('COUGARCALC_PRIVILEGES_INVALID')
+        );
+      }
+
+      return hasRuntimePrivileges;
     },
 
     async saveCalculation({ browserTokenHash, expression, result }) {
@@ -371,10 +547,84 @@ function createPostgresRepository(pool) {
       await pool.end();
     }
   };
+
+  repository.checkReadiness = async function checkReadiness() {
+    if (!readinessCheck) {
+      const currentCheck = { stage: 'connection' };
+      currentCheck.promise = (async () => {
+        try {
+          await repository.verifyConnection();
+          let invalidReadiness;
+          const schemaReady = await repository.verifySchema({
+            onStage(stage) {
+              currentCheck.stage = stage;
+            },
+            onInvalid(stage, error) {
+              invalidReadiness = { stage, error };
+            }
+          });
+
+          if (!schemaReady) {
+            diagnostics?.readinessFailed(
+              invalidReadiness?.stage || currentCheck.stage,
+              invalidReadiness?.error ||
+                createSafeDatabaseError('COUGARCALC_SCHEMA_INVALID')
+            );
+            return false;
+          }
+
+          diagnostics?.readinessRecovered();
+          return true;
+        } catch (error) {
+          diagnostics?.readinessFailed(currentCheck.stage, error);
+          return false;
+        }
+      })();
+      readinessCheck = currentCheck;
+      currentCheck.promise.finally(() => {
+        if (readinessCheck === currentCheck) {
+          readinessCheck = undefined;
+        }
+      });
+    }
+
+    const startedAt = Date.now();
+    const readinessTimeout = Symbol('readiness timeout');
+    let timer;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(
+        () => resolve(readinessTimeout),
+        readinessTimeoutMillis
+      );
+    });
+
+    const currentCheck = readinessCheck;
+    const result = await Promise.race([currentCheck.promise, timeout]).finally(() => {
+      clearTimeout(timer);
+    });
+
+    if (result === readinessTimeout) {
+      diagnostics?.readinessFailed(
+        currentCheck.stage,
+        { code: 'ETIMEDOUT' },
+        { elapsedMs: Date.now() - startedAt }
+      );
+      return false;
+    }
+
+    return result;
+  };
+
+  return repository;
 }
 
 module.exports = {
+  CONNECTION_TIMEOUT_MILLIS,
+  QUERY_TIMEOUT_MILLIS,
+  READINESS_TIMEOUT_MILLIS,
   createPoolFromEnv,
   createPostgresRepository,
+  createUnavailableRepository,
+  getMissingDatabaseVariables,
   readDatabaseConfig
 };

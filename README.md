@@ -1,1 +1,1 @@
-Favorite color: Blue
+Favorite color: Green

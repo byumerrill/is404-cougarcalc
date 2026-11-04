@@ -1,2 +1,2 @@
-Favorite Color: None
+Favorite Color: blue
 

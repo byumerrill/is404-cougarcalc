@@ -163,4 +163,4 @@ The public RDS bundle at `database/certs/global-bundle.pem` came from Amazon's o
 
 ## Conflict practice
 
-Favorite color: crimson
+Favorite color: azure

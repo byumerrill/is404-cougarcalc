@@ -1,3 +1,3 @@
 ## Conflict practice
 
-Favorite color: blue
+Favorite color: none

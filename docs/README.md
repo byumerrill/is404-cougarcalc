@@ -93,7 +93,7 @@ Run Node as `cougarcalc_app`, limited to schema `USAGE`, table `SELECT` and `INS
 A saved calculation retains the Release 02 response:
 
 ```json
-{"result":14}
+{ "result": 14 }
 ```
 
 If persistence is unavailable, the calculation still succeeds but is not queued or recovered later:
@@ -161,4 +161,4 @@ The public RDS bundle at `database/certs/global-bundle.pem` came from Amazon's o
 
 ## Conflict practice
 
-Favorite color: none
+Favorite color: blue

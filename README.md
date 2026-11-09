@@ -1,3 +1,3 @@
 ## Merge Conflict Practice
 
-Favorite color: Amber
+Favorite color: amber

@@ -160,4 +160,4 @@ The deterministic builder uses a runtime allowlist rather than depending on a de
 The public RDS bundle at `database/certs/global-bundle.pem` came from Amazon's official RDS trust store. It is public, not secret. Before each release and when AWS announces RDS CA rotation, compare the checked-in file with the current official bundle, review the change, rerun TLS tests, rebuild the ZIP, and deploy before the affected certificates expire.
 ## Conflict practice
 
-Favorite color: none
+Favorite color: crimson

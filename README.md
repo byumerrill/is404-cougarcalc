@@ -1,3 +1,3 @@
 ## Conflict practice
 
-Favorite color: amber
+Favorite color: none

@@ -1,3 +1,3 @@
    ## Merge Conflict Practice
 
-   Favorite color: Branch
+   Favorite color: Amber

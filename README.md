@@ -1,3 +1,4 @@
    ## Merge Conflict Practice
 
-   Favorite color: none
+   Favorite color: blue
+   git status
